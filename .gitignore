@@ -1,0 +1,9 @@
+*.pyc
+*.o
+*.so
+a.out
+.DS_Store
+*.mat
+*.txt
+*.npy
+*.dat
