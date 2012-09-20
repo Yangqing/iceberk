@@ -57,12 +57,18 @@ class CifarDataset(datasets.ImageSet):
             with open(rootfolder + os.sep + filename) as fid:
                 batch = pickle.load(fid)
             self._data = CifarDataset.get_images_from_matrix(batch['data'])
+            self._coarselabel = np.array(batch['coarse_labels'])
             self._label = np.array(batch['fine_labels'])
         else:
             self._data = None
+            self._coarselabel = None
             self._label = None
         self._data = mpi.distribute(self._data)
+        self._coarselabel = mpi.distribute(self._coarselabel)
         self._label = mpi.distribute(self._label)
+    
+    def coarse_labels(self):
+        return self._coarselabel.copy()
     
     def load_cifar10(self, rootfolder, is_training):
         """loads the cifar-10 dataset

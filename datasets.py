@@ -63,7 +63,7 @@ class ImageSet(object):
     def labels(self):
         """ Returns the label vector for all the data I am hosting
         """
-        return np.asarray(self._label)
+        return np.array(self._label)
     
     def dim(self):
         """Returns the dimension of the data if they have the same dimension
