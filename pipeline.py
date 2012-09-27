@@ -6,7 +6,8 @@ contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
 import ctypes as ct
-from jiayq_ice import kmeans_mpi, mpi, omp_mpi
+from jiayq_ice import kmeans_mpi, mpi, omp_mpi, mathutil
+import logging
 import numpy as np
 import os
 from PIL import Image
@@ -64,6 +65,7 @@ class ConvLayer(list):
         processing components after the pooler, but they should not require
         any training (if they do, you may want to move them to the next layer
         """
+        logging.debug("Training convolutional layer...")
         if not isinstance(self[0], PatchExtractor):
             raise ValueError, "The first component should be a patch extractor!"
         patches = self[0].sample(dataset, 
@@ -81,8 +83,9 @@ class ConvLayer(list):
         return output
         
     def process_dataset(self, dataset):
-        """Processes a whole datast and returns an numpy ndarray
+        """Processes a whole dataset and returns an numpy ndarray
         """
+        
         return np.asarray([self.process(dataset.image(i))
                            for i in range(dataset.size())])
             
@@ -261,7 +264,7 @@ class PcaTrainer(DictionaryTrainer):
         b = - mpi.COMM.allreduce(np.sum(incoming_patches,axis=0)) / size
         # remove the mean from data
         patches = incoming_patches + b
-        covmat = mpi.COMM.allreduce(np.dot(patches.T, patches)) / size
+        covmat = mpi.COMM.allreduce(mathutil.dot(patches.T, patches)) / size
         if mpi.RANK == 0:
             eigval, eigvec = np.linalg.eigh(covmat)
             reg = self.specs.get('reg', np.finfo(np.float64).eps)
@@ -334,7 +337,7 @@ class InnerProductEncoder(FeatureEncoder):
     """ An innner product encoder that does output = np.dot(input, dictionary)
     """
     def process(self, image):
-        return np.dot(image, self.dictionary.T)
+        return mathutil.dot_image(image, self.dictionary.T)
 
 class ThresholdEncoder(FeatureEncoder):
     """ Like inner product encoder, but does thresholding to zero-out small
@@ -343,10 +346,10 @@ class ThresholdEncoder(FeatureEncoder):
     def process(self, image):
         # 0.25 is the default value used in Ng's paper
         alpha = self.specs.get('alpha', 0.25)
-        output = np.dot(image, self.dictionary.T)
+        output = mathutil.dot_image(image, self.dictionary.T)
         # check if we would like to do two-side thresholding. Default yes.
         if self.specs.get('twoside', True):
-            output = np.concatenate((output, output), axis=-1)
+            output = np.concatenate((output, - output), axis=-1)
         else:
             # otherwise, we will take the absolute value
             output = np.abs(output)
@@ -425,6 +428,7 @@ class SpatialPooler(Pooler):
     
     def process(self, image):
         if not (image.flags['C_CONTIGUOUS'] and image.dtype == np.float64):
+            logging.warning("Warning: the image is not contiguous.")
             image = np.ascontiguousarray(image, dtype=np.float64)
         # do fast pooling
         grid = self.specs['grid']

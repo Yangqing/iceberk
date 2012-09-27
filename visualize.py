@@ -10,6 +10,8 @@ class PatchVisualizer:
     '''
     def __init__(self, gap = 1):
         self.gap = gap
+        # reference to pyplot
+        self.pyplot = pyplot
     
     def show_single(self, patch):
         """Visualizes one single patch. The input patch could be a vector (in

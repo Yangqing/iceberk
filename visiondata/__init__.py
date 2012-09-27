@@ -4,3 +4,4 @@ format defined in jiayq_ice.datasets
 
 from jiayq_ice.visiondata._cifar import CifarDataset
 from jiayq_ice.visiondata._cub import CUBDataset
+from jiayq_ice.visiondata._stl_10 import STL10Dataset

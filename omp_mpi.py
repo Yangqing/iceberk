@@ -2,6 +2,7 @@
 """
 
 from jiayq_ice import mpi
+import logging
 import numpy as np
 
 # minibatch is used to avoid excessive memory consumption
@@ -47,7 +48,8 @@ def omp1(X, k, max_iter=100, tol=1e-4):
                 np.random.permutation(centroids_all.shape[0])[:k]]
     mpi.COMM.Bcast(centroids, root=0)
 
-    for _ in range(max_iter):
+    for iter_id in range(max_iter):
+        logging.debug("OMP iteration %d" % (iter_id,))
         centroids_old = centroids.copy()
         labels, val = omp1_predict(X, centroids)
         centroids = omp1_maximize(X, labels, val, k)
@@ -58,6 +60,7 @@ def omp1(X, k, max_iter=100, tol=1e-4):
             converged = None
         converged = mpi.COMM.bcast(converged)
         if converged:
+            logging.debug("OMP has converged.")
             break
     return centroids
 

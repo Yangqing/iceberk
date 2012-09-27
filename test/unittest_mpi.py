@@ -76,7 +76,7 @@ class TestMPI(unittest.TestCase):
         for mat in mat_sources:
             mpi.dump_matrix(mat, _MPI_DUMP_TEST_FILE)
             if mpi.is_root():
-                mat_dumped = pickle.load(open(_MPI_DUMP_TEST_FILE,'r'))
+                mat_dumped = np.load(_MPI_DUMP_TEST_FILE)
                 self.assertEqual(mat_dumped.shape,
                                  (local_size * mpi.SIZE,) + mat.shape[1:])
             mat_read = mpi.load_matrix(_MPI_DUMP_TEST_FILE)

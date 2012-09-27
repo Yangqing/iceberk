@@ -2,6 +2,7 @@
 '''
 
 import cPickle as pickle
+import logging
 from mpi4py import MPI
 import numpy as np
 import os
@@ -79,18 +80,24 @@ def barrier(tag=0, sleep=0.01):
         req.Wait() 
         mask <<= 1
         
+
+def get_segments(total):
+    """Get the segments for each local node
+    """
+    return [int(total * i / float(SIZE)) for i in range(SIZE+1)]
+    
 def distribute(mat):
     """Distributes the mat from root to individual nodes
     
     The data will be distributed along the first axis, as even as possible.
+    You should make sure that the matrix is in C-contiguous format.
     """
     # quick check
     if SIZE == 1:
         return mat
     if is_root():
-        total = float(mat.shape[0])
         shape = mat.shape[1:]
-        segments = [int(total * i / SIZE) for i in range(SIZE+1)]
+        segments = get_segments(mat.shape[0])
         dtype = mat.dtype
     else:
         shape = None
@@ -100,6 +107,9 @@ def distribute(mat):
     dtype = COMM.bcast(dtype)
     segments = COMM.bcast(segments)
     if is_root():
+        if mat.flags['C_CONTIGUOUS'] != True:
+            logging.warning('Warning: mat is not contiguous.')
+            mat = np.ascontiguousarray(mat)
         for i in range(1,SIZE):
             COMM.Send(mat[segments[i]:segments[i+1]], dest=i)
         data = mat[:segments[1]].copy()
@@ -116,12 +126,12 @@ def distribute_list(source):
     if SIZE == 1:
         return source
     if is_root():
-        total = float(len(source))
-        segments = [int(total * i / SIZE) for i in range(SIZE+1)]
+        segments = get_segments(len(source))
         for i in range(1,SIZE):
             send_list = source[segments[i]:segments[i+1]]
             COMM.send(send_list, dest=i)
         data = source[:segments[1]]
+        del source
     else:
         data = COMM.recv()
     return data
@@ -144,21 +154,22 @@ def dump_matrix(mat, filename):
                 COMM.Recv(mat_reduced[start:start+mat_sizes[i]], source = i)
                 start += mat_sizes[i]
             with open(filename,'w') as fid:
-                pickle.dump(mat_reduced, fid)
+                np.save(file, mat_reduced)
         else:
             COMM.Send(mat, dest = 0)
         barrier()
 
 def load_matrix(filename):
     """Load a matrix from a single pickle, and distribute it to each node
+    numpy supports memmap so each node will simply load its own part
     """
-    if is_root:
-        with open(filename,'r') as fid:
-            data = pickle.load(fid)
-    else:
-        data = None
+    with open(filename,'r') as fid:
+        data = np.load(fid, mmap_mode = 'r')
+    total_size = data.shape[0]
+    segments = get_segments(total_size)
+    data = np.ascontiguousarray(data[segments[RANK]:segments[RANK+1]])
     barrier()
-    return distribute(data)
+    return data
 
 if __name__ == "__main__":
     pass
