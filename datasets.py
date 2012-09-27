@@ -54,7 +54,14 @@ class ImageSet(object):
             return self._data[idx]
         else:
             return self._read(idx)
+    
+    def raw_data(self):
+        """ Returns the raw data
         
+        Make sure you know what is stored in self._data if you use this
+        """
+        return self._data
+    
     def label(self, idx):
         """ Returns the label for the corresponding datum
         """
@@ -111,7 +118,7 @@ class TwoLayerDataset(ImageSet):
     Caltech-101
     """
     def __init__(self, root_folder, extensions, prefetch = False, 
-                 target_size = False):
+                 target_size = None):
         """ Initialize from a two-layer storage
         Input:
             root_folder: the root that contains the data. Under root_folder
@@ -150,7 +157,7 @@ class TwoLayerDataset(ImageSet):
         self._data = mpi.distribute_list(files)
         self._prefetch = prefetch
         self.target_size = target_size
-        if target_size != False:
+        if target_size != None:
             self._dim = tuple(target_size) + (3,)
         else:
             self._dim = False
@@ -161,7 +168,7 @@ class TwoLayerDataset(ImageSet):
         self.classnames = mpi.COMM.bcast(classnames)
     
     def _read(self, idx):
-        if self.target_size is not False:
+        if self.target_size is not None:
             return misc.imresize(imread_RGB(self._data[idx]),
                                  self.target_size)
         else:
