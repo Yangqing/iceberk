@@ -349,7 +349,14 @@ class ThresholdEncoder(FeatureEncoder):
         output = mathutil.dot_image(image, self.dictionary.T)
         # check if we would like to do two-side thresholding. Default yes.
         if self.specs.get('twoside', True):
-            output = np.concatenate((output, - output), axis=-1)
+            # concatenate, and make sure to be C_CONTIGUOUS
+            imshape = output.shape[:-1]
+            N = output.shape[-1]
+            output.resize((np.prod(imshape), N))
+            temp = np.empty((np.prod(imshape), N*2))
+            temp[:,:N] = output
+            temp[:,N:] = -output
+            output = temp.reshape(imshape + (N*2,))
         else:
             # otherwise, we will take the absolute value
             output = np.abs(output)
