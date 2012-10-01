@@ -332,7 +332,7 @@ class LinearEncoder(FeatureEncoder):
     def process(self, image):
         W, b = self.dictionary
         return np.dot(image + b, W)
-        
+
 class InnerProductEncoder(FeatureEncoder):
     """ An innner product encoder that does output = np.dot(input, dictionary)
     """
@@ -360,7 +360,9 @@ class ThresholdEncoder(FeatureEncoder):
         else:
             # otherwise, we will take the absolute value
             output = np.abs(output)
-        return np.maximum(output-alpha, 0.)
+        output -= alpha
+        np.clip(output, 0., np.inf, out=output)
+        return output
 
 class TriangleEncoder(FeatureEncoder):
     """ Does triangle encoding as described in Coates and Ng's AISTATS paper
