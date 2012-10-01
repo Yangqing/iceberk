@@ -1,6 +1,7 @@
 import cPickle as pickle
 from jiayq_ice import mpi
 import numpy as np
+import os
 import unittest
 
 _MPI_TEST_DIR = '/tmp/mpi_test_dir'
@@ -16,7 +17,6 @@ class TestMPI(unittest.TestCase):
         self.assertIsNotNone(mpi.COMM)
         
     def testMkdir(self):
-        import os
         mpi.mkdir(_MPI_TEST_DIR)
         self.assertTrue(os.path.exists(_MPI_TEST_DIR))
         
@@ -82,6 +82,18 @@ class TestMPI(unittest.TestCase):
             mat_read = mpi.load_matrix(_MPI_DUMP_TEST_FILE)
             self.assertEqual(mat.shape, mat_read.shape)
         
+    def testLoadMulti(self):
+        testdir = os.path.dirname(__file__)
+        data1 = mpi.load_matrix(os.path.join(testdir,
+                                             'data',
+                                             'dumploadmulti',
+                                             'single_file.npy'))
+        data2 = mpi.load_matrix_multi(os.path.join(testdir,
+                                             'data',
+                                             'dumploadmulti',
+                                             'multiple_files'))
+        np.testing.assert_array_equal(data1, data2)
+
 if __name__ == '__main__':
     unittest.main()
 

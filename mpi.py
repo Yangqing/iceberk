@@ -2,6 +2,7 @@
 '''
 
 import cPickle as pickle
+import glob
 import logging
 from mpi4py import MPI
 import numpy as np
@@ -137,7 +138,7 @@ def distribute_list(source):
     return data
         
 def dump_matrix(mat, filename):
-    """Dumps the matrix distributed over machines to one file
+    """Dumps the matrix distributed over machines to one single file
     """
     if SIZE == 1:
         with open(filename,'w') as fid:
@@ -154,7 +155,7 @@ def dump_matrix(mat, filename):
                 COMM.Recv(mat_reduced[start:start+mat_sizes[i]], source = i)
                 start += mat_sizes[i]
             with open(filename,'w') as fid:
-                np.save(file, mat_reduced)
+                np.save(fid, mat_reduced)
         else:
             COMM.Send(mat, dest = 0)
         barrier()
@@ -163,13 +164,70 @@ def load_matrix(filename):
     """Load a matrix from a single pickle, and distribute it to each node
     numpy supports memmap so each node will simply load its own part
     """
-    with open(filename,'r') as fid:
-        data = np.load(fid, mmap_mode = 'r')
+    data = np.load(filename, mmap_mode = 'r')
     total_size = data.shape[0]
     segments = get_segments(total_size)
     data = np.ascontiguousarray(data[segments[RANK]:segments[RANK+1]])
     barrier()
     return data
+
+def dump_matrix_multi(mat, filename):
+    """Dumps the matrix distributed over machines to multiple files, one per
+    MPI node.
+    """
+    if SIZE > 99999:
+        # this usually won't happen, but we leave the sanity check here
+        raise ValueError, 'I cannot deal with too many MPI instances.'
+    my_filename = '%s-%05d-of-%05d.npy' % (filename, RANK, SIZE)
+    np.save(my_filename, mat)
+    
+def load_matrix_multi(filename):
+    """Loads the matrix previously dumped by dump_matrix_multi. The MPI size 
+    might be different. The stored files are in the format
+    filename-xxxxx-of-xxxxx, which we obtain using glob.
+    """
+    files= glob.glob('%s-?????-of-?????.npy' % (filename))
+    N = len(files)
+    if N == SIZE:
+        # we are lucky
+        mat = np.load('%s-%05d-of-%05d.npy' % (filename, RANK, SIZE))
+        return mat
+    else:
+        # we will load the length of the data, and then try to distribute them
+        # as even as possible.
+        if RANK == 0:
+            # the root will first taste each file
+            sizes = np.array([np.load('%s-%05d-of-%05d.npy' % (filename, i, N),
+                                      mmap_mode='r').shape[0]
+                              for i in range(N)])
+            shape = np.load('%s-%05d-of-%05d.npy' % (filename, 0, N),
+                                      mmap_mode='r').shape[1:]
+        else:
+            sizes = None
+            shape = None
+        barrier()
+        sizes = COMM.bcast(sizes)
+        shape = COMM.bcast(shape)
+        total = sizes.sum()
+        segments = get_segments(total)
+        # now, each node opens the file that overlaps with its data, and reads
+        # the contents.
+        my_start = segments[RANK]
+        my_end = segments[RANK+1]
+        my_size = my_end - my_start
+        mat = np.empty((my_size,) + shape)
+        f_start = -sizes[0]
+        f_end = 0
+        for i, size in enumerate(sizes):
+            f_start += size
+            f_end += size
+            if f_start < my_end and f_end > my_start:
+                file_mat = np.load('%s-%05d-of-%05d.npy' % (filename, i, N),
+                                    mmap_mode='r')
+                mat[max(f_start - my_start, 0):min(f_end, my_end)-my_start] = \
+                        file_mat[max(my_start-f_start,0):\
+                                 min(f_end, my_end) - f_start]
+        return mat
 
 if __name__ == "__main__":
     pass
