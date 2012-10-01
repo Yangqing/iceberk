@@ -68,9 +68,11 @@ class ConvLayer(list):
         logging.debug("Training convolutional layer...")
         if not isinstance(self[0], PatchExtractor):
             raise ValueError, "The first component should be a patch extractor!"
+        logging.debug("Extracting random patches...")
         patches = self[0].sample(dataset, 
                                  int(round(num_patches / mpi.SIZE + 0.5)))
         for component in self[1:]:
+            logging.debug("Training %s..." % (component.__class__))
             if isinstance(component, Pooler):
                 # if we've reached pooler, stop training
                 break

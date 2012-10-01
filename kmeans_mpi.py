@@ -15,6 +15,7 @@ The original copyright info is as follows.
 
 from jiayq_ice import mpi
 import numpy as np
+import logging
 from sklearn import metrics
 
 
@@ -62,7 +63,8 @@ def kmeans(X, k, n_init=1, max_iter=300, tol=1e-4):
 
     # pre-compute squared norms of data points
     x_squared_norms = (X**2).sum(axis=1)
-    for _ in range(n_init):
+    for init_count in range(n_init):
+        logging.debug("Kmeans trial %d" % (init_count,))
         # initialization
         centers = X[np.random.randint(X.shape[0], size = k)]
         centers_all = mpi.COMM.gather(centers)
@@ -73,11 +75,13 @@ def kmeans(X, k, n_init=1, max_iter=300, tol=1e-4):
         mpi.COMM.Bcast(centers)
         
         # iterations
-        for _ in range(max_iter):
+        for iter_id in range(max_iter):
+            logging.debug("Kmeans iter %d" % (iter_id))
             centers_old = centers.copy()
             labels, inertia = _e_step(X, centers,
                                       x_squared_norms=x_squared_norms)
             inertia = mpi.COMM.allreduce(inertia)
+            logging.debug("Itertia %f" % (inertia),)
             centers = _m_step(X, labels, k)
             # test convergence
             converged = (np.sum((centers_old - centers) ** 2) < tol * vdata)
