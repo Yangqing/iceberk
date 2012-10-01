@@ -425,10 +425,14 @@ def l2svm_binary(X, Y, gamma, weight = None, **kwargs):
     return solver.solve(X, Y, weight)
 
 def svm_onevsall(X, Y, gamma, weight = None, **kwargs):
+    if Y.ndim == 1:
+        Y = to_one_of_k_coding(Y)
     solver = SolverMC(gamma, Loss.loss_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
 
 def l2svm_onevsall(X, Y, gamma, weight = None, **kwargs):
+    if Y.ndim == 1:
+        Y = to_one_of_k_coding(Y)
     solver = SolverMC(gamma, Loss.loss_squared_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
 
