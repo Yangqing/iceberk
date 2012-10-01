@@ -76,12 +76,14 @@ class ConvLayer(list):
                 break
             patches = component.train(patches)
         
-    def process(self, image):
+    def process(self, image, as_2d = False):
         output = image
         for element in self:
             output = element.process(output)
+        if as_2d:
+            output.resize(output.shape[0], np.prod(output.shape[1:]))
         return output
-        
+    
     def process_dataset(self, dataset):
         """Processes a whole dataset and returns an numpy ndarray
         """

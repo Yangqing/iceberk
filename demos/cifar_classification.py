@@ -4,13 +4,30 @@ Created on Sep 20, 2012
 @author: jiayq
 '''
 import cPickle as pickle
-from jiayq_ice import mpi, visiondata, pipeline
+import gflags
+import logging
+from jiayq_ice import mpi, visiondata, pipeline, classifier
+import numpy as np
 
-_CIFAR_FOLDER = '/u/vis/x1/common/CIFAR/cifar-10-batches-py'
-_MODEL_FILE = './conv.pickle'
 
-print 'Loading cifar data...'
-cifar = visiondata.CifarDataset(_CIFAR_FOLDER, is_training=True)
+gflags.DEFINE_string("root", "",
+                     "The root to the cifar dataset")
+gflags.RegisterValidator('root', lambda x: x != "",
+                         message='--root must be provided.')
+gflags.DEFINE_string("output_dir", ".",
+                     "The output directory")
+gflags.DEFINE_string("model_file", "conv.pickle",
+                     "The output model file")
+gflags.DEFINE_string("feature_file", "cnn_features",
+                     "The output feature files")
+gflags.DEFINE_string("svm_file", "svm.pickle",
+                     "The output svm file")
+FLAGS = gflags.FLAGS
+
+logging.info('Loading cifar data...')
+cifar = visiondata.CifarDataset(FLAGS.root, is_training=True)
+cifar_test = visiondata.CifarDataset(FLAGS.root, is_training=False)
+
 conv = pipeline.ConvLayer([
         pipeline.PatchExtractor([6,6], 1), # extracts patches
         pipeline.MeanvarNormalizer({'reg': 10}), # normalizes the patches
@@ -20,16 +37,37 @@ conv = pipeline.ConvLayer([
                 trainer = pipeline.KmeansTrainer({'k': 800})), # does encoding
         pipeline.SpatialPooler({'grid': (2,2), 'method': 'ave'}) # average pool
         ])
-print 'Training the pipeline...'
+logging.info('Training the pipeline...')
 conv.train(cifar, 400000)
 if mpi.is_root():
-    fid = open(_MODEL_FILE,'w')
-    pickle.dump(conv, fid)
-    fid.close()
+    with open(FLAGS.model_file,'w') as fid:
+        pickle.dump(conv, fid)
+        fid.close()
 
-print 'Extracting features...'
-
-Xtrain = conv.process_dataset(cifar)
+logging.info('Extracting features...')
+Xtrain = conv.process_dataset(cifar, as_2d = True)
+mpi.dump_matrix_multi(Xtrain, FLAGS.feature_file+'_train')
 Ytrain = cifar.labels()
+Xtest = conv.process_dataset(cifar_test, as_2d = True)
+mpi.dump_matrix_multi(Xtest, FLAGS.feature_file+'_test')
+Ytest = cifar_test.labels()
 
+# normalization
+m = Xtrain.mean(axis=1)
+std = Xtrain.std(asix=1)
+Xtrain -= m
+Xtrain /= std
+Xtest -= m
+Xtest /= std
+
+w, b = classifier.l2svm_onevsall(Xtrain, Ytrain, 0.01)
+with open(FLAGS.svm_file, 'w') as fid:
+    pickle.dump({'m': m, 'std': std, 'w': w, 'b': b}, fid)
+accu = np.sum(Ytrain == (np.dot(Xtrain,w)+b).argmax(axis=1)) \
+        / float(len(Ytrain))
+accu_test = np.sum(Ytrain == (np.dot(Xtrain,w)+b).argmax(axis=1)) \
+        / float(len(Ytrain))
+
+logging.info('Training accuracy: %f' % accu)
+logging.info('Testing accuracy: %f' % accu_test)
 
