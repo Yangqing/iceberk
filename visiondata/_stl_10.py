@@ -15,7 +15,7 @@ class STL10Dataset(datasets.ImageSet):
     _image_dim = (96, 96, 3)
     _num_channels = 3
     
-    def __init__(self, root, mode):
+    def __init__(self, root, mode, is_gray = False):
         """Loads the STL dataset. mode should be either 'train', 'test', or 
         'unlabeled'
         """
@@ -37,8 +37,14 @@ class STL10Dataset(datasets.ImageSet):
             self._label = None
         else:
             raise ValueError, "Unrecognized mode."
-        self._dim = STL10Dataset._image_dim
-        self._channels = STL10Dataset._num_channels
+        if is_gray:
+            self._data = self._data.mean(axis=-1)
+            self._dim = STL10Dataset._image_dim[:2]
+            self._channels = 1
+        else:
+            self._dim = STL10Dataset._image_dim
+            self._channels = STL10Dataset._num_channels
+
         self._prefetch = True
     
     @staticmethod

@@ -20,7 +20,7 @@ class CifarDataset(datasets.ImageSet):
     __image_size = 1024
     __flat_dim = 3072
     
-    def __init__(self, rootfolder, is_training):
+    def __init__(self, rootfolder, is_training, is_gray = False):
         super(CifarDataset, self).__init__()
         # we will automatically determine if the data is cifar-10 or cifar-100
         if os.path.exists(rootfolder+os.sep+'batches.meta'):
@@ -31,8 +31,13 @@ class CifarDataset(datasets.ImageSet):
             self.load_cifar100(rootfolder, is_training)
         else:
             raise IOError, 'Cannot understand the dataset format.'
-        self._dim = CifarDataset.__image_dim
-        self._channels = CifarDataset.__num_channels
+        if is_gray:
+            self._data = self._data.mean(axis=-1)
+            self._dim = CifarDataset.__image_dim[:2]
+            self._channels = 1
+        else:
+            self._dim = CifarDataset.__image_dim
+            self._channels = CifarDataset.__num_channels
         
     @staticmethod
     def get_images_from_matrix(mat):
@@ -77,7 +82,7 @@ class CifarDataset(datasets.ImageSet):
             if is_training:
                 self._data = np.empty((CifarDataset.__num_train,) + \
                                       CifarDataset.__image_dim)
-                self._label = np.empty(CifarDataset.__num_train)
+                self._label = np.empty(CifarDataset.__num_trseain)
                 # training batches
                 for i in range(CifarDataset.__num_batches):
                     with open(os.path.join(rootfolder,
