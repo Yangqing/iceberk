@@ -205,7 +205,8 @@ class SolverMC(Solver):
         w = wb[:K*dim].reshape((dim, K))
         b = wb[K*dim:]
         # pred is a matrix of size [num_datalocal, K]
-        pred = np.dot(solver._X, w) + b
+        pred = mathutil.dot(solver._X, w)
+        pred += b
         # compute the loss function
         flocal,gpred = solver.loss(solver._Y, pred, solver._weight,
                                    **solver._lossargs)
