@@ -164,10 +164,13 @@ def load_matrix(filename):
     """Load a matrix from a single pickle, and distribute it to each node
     numpy supports memmap so each node will simply load its own part
     """
-    data = np.load(filename, mmap_mode = 'r')
-    total_size = data.shape[0]
+    if SIZE == 1:
+        data = np.load(filename)
+        return data
+    raw_data = np.load(filename, mmap_mode = 'r')
+    total_size = raw_data.shape[0]
     segments = get_segments(total_size)
-    data = np.ascontiguousarray(data[segments[RANK]:segments[RANK+1]])
+    data = np.array(raw_data[segments[RANK]:segments[RANK+1]])
     barrier()
     return data
 
@@ -228,6 +231,7 @@ def load_matrix_multi(filename):
                         file_mat[max(my_start-f_start,0):\
                                  min(f_end, my_end) - f_start]
         return mat
+
 
 if __name__ == "__main__":
     pass

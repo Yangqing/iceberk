@@ -82,7 +82,7 @@ class CifarDataset(datasets.ImageSet):
             if is_training:
                 self._data = np.empty((CifarDataset.__num_train,) + \
                                       CifarDataset.__image_dim)
-                self._label = np.empty(CifarDataset.__num_trseain)
+                self._label = np.empty(CifarDataset.__num_train)
                 # training batches
                 for i in range(CifarDataset.__num_batches):
                     with open(os.path.join(rootfolder,

@@ -31,6 +31,32 @@ def to_one_of_k_coding(Y):
     Yout[np.arange(len(Y)), Y] = 1
     return Yout
 
+def feature_meanstd(mat):
+    '''
+    Utility function that does in-place normalization of features.
+    Input:
+        mat: the local data matrix, each row is a feature vector and each 
+             column is a feature dim
+    Output:
+        m:      the mean for each dimension
+        std:    the standard deviation for each dimension
+    '''
+    # subtract mean
+    N = mpi.COMM.allreduce(mat.shape[0])
+    m = np.empty_like(mat[0])
+    mpi.COMM.Allreduce(np.sum(mat, axis=0), m)
+    m /= N
+    # we perform in-place modifications
+    mat -= m
+    # normalize variance
+    std = np.empty_like(mat[0])
+    mpi.COMM.Allreduce(np.sum(mat**2,axis=0), std)
+    std /= N
+    # we also add a regularization term
+    std = np.sqrt(std) + np.finfo(np.float64).eps
+    # recover the original mat
+    mat += m
+    return m, std
 
 class Solver(object):
     '''

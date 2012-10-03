@@ -67,31 +67,35 @@ class ConvLayer(list):
         """
         logging.debug("Training convolutional layer...")
         if not isinstance(self[0], PatchExtractor):
-            raise ValueError, "The first component should be a patch extractor!"
+            raise ValueError, \
+                  "The first component should be a patch extractor!"
         logging.debug("Extracting random patches...")
         patches = self[0].sample(dataset, 
                                  int(round(num_patches / mpi.SIZE + 0.5)))
         for component in self[1:]:
-            logging.debug("Training %s..." % (component.__class__))
+            logging.debug("Training %s..." % (component.__class__.__name__))
             if isinstance(component, Pooler):
                 # if we've reached pooler, stop training
                 break
             patches = component.train(patches)
         
-    def process(self, image, as_2d = False):
+    def process(self, image, as_vector = False):
         output = image
         for element in self:
             output = element.process(output)
-        if as_2d:
-            output.resize(output.shape[0], np.prod(output.shape[1:]))
+        if as_vector:
+            output.resize(np.prod(output.shape))
         return output
     
-    def process_dataset(self, dataset):
+    def process_dataset(self, dataset, as_2d = False):
         """Processes a whole dataset and returns an numpy ndarray
         """
-        
-        return np.asarray([self.process(dataset.image(i))
-                           for i in range(dataset.size())])
+        temp = self.process(dataset.image(0), as_vector = as_2d)
+        data = np.empty((dataset.size(),) + temp.shape)
+        data[0] = temp
+        for i in range(1,dataset.size()):
+            data[i] = self.process(dataset.image(i), as_vector = as_2d)
+        return data
             
 class PatchExtractor(object):
     """The patch extractor. It densely extracts overlapping patches, and 
@@ -185,7 +189,7 @@ class Normalizer(Component):
         raise NotImplementedError
     
     def train(self, patches):
-        """ For normalizers, no training should be needed.
+        """ For normalizers, usually no training should be needed.
         """
         return self.process(patches)
     
@@ -206,7 +210,7 @@ class MeanvarNormalizer(Normalizer):
                             reshape(image.shape[:-1] + (1,))
         return image_out
             
-        
+
 class L2Normalizer(Normalizer):
     """Normalizes the patches so they lie on a unit ball.
     
@@ -330,12 +334,30 @@ class FeatureEncoder(Component):
             self.dictionary = self.trainer.train(incoming_patches)[0]
         return self.process(incoming_patches)
 
-class LinearEncoder(FeatureEncoder):
-    """A linear encoder that does output = W (input + b)
+class LinearEncoderBW(FeatureEncoder):
+    """A linear encoder that does output = (input + b) * W
     """
     def process(self, image):
         W, b = self.dictionary
-        return np.dot(image + b, W)
+        # we create the offset in-place: this might introduce some numerical
+        # differences but should be fine most of the time
+        image += b
+        output = mathutil.dot_image(image, W)
+        image -= b
+        return output
+
+class LinearEncoderWB(FeatureEncoder):
+    """A linear encoder that does output = input * W + b
+    """
+    def process(self, image):
+        W, b  = self.dictionary
+        output = mathutil.dot_image(image, W)
+        output += b
+        return output
+
+"""the default linear encoder is LinearEncoderBW
+"""
+LinearEncoder = LinearEncoderBW
 
 class InnerProductEncoder(FeatureEncoder):
     """ An innner product encoder that does output = np.dot(input, dictionary)

@@ -81,7 +81,7 @@ def kmeans(X, k, n_init=1, max_iter=300, tol=1e-4):
             labels, inertia = _e_step(X, centers,
                                       x_squared_norms=x_squared_norms)
             inertia = mpi.COMM.allreduce(inertia)
-            logging.debug("Itertia %f" % (inertia),)
+            logging.debug("Inertia %f" % (inertia),)
             centers = _m_step(X, labels, k)
             # test convergence
             converged = (np.sum((centers_old - centers) ** 2) < tol * vdata)
