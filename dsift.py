@@ -10,9 +10,9 @@ Yangqing Jia, jiayq@eecs.berkeley.edu
 '''
 
 import numpy as np
-from scipy import signal
 from jiayq_ice import pipeline, mpi
 import logging
+from scipy.ndimage import filters
 
 """Default SIFT feature parameters
 """
@@ -41,7 +41,7 @@ def gen_dgauss(sigma,fwid=None):
     GH,GW = np.gradient(G)
     GH *= 2.0/np.sum(np.abs(GH))
     GW *= 2.0/np.sum(np.abs(GW))
-    return GH,GW
+    return GH, GW
 
 class DsiftExtractor(pipeline.Extractor):
     '''
@@ -64,7 +64,7 @@ class DsiftExtractor(pipeline.Extractor):
         self.gS = stride
         self.pS = psize
         self.nrml_thres = specs.get('nrml_thres', 1.0)
-        self.sigma = specs.get('sigma_edge', 0.8)
+        self.sigma = specs.get('sigma_edge', 1.0)
         self.sift_thres = specs.get('sift_thres', 0.2)
         # compute the weight contribution map
         sample_res = self.pS / np.double(_NUM_BINS)
@@ -166,41 +166,41 @@ class DsiftExtractor(pipeline.Extractor):
 
         # calculate gradient
         GH,GW = gen_dgauss(self.sigma)
-        IH = signal.convolve2d(image,GH,mode='same')
-        IW = signal.convolve2d(image,GW,mode='same')
-        Imag = np.sqrt(IH**2+IW**2)
-        Itheta = np.arctan2(IH,IW)
-        Iorient = np.zeros((_NUM_ANGLES,H,W))
+        IH = filters.convolve(image, GH, mode='nearest')
+        IW = filters.convolve(image, GW, mode='nearest')
+        Imag = np.sqrt(IH ** 2 + IW ** 2)
+        Itheta = np.arctan2(IH, IW)
+        Iorient = np.zeros((_NUM_ANGLES, H, W))
         for i in range(_NUM_ANGLES):
             Iorient[i] = Imag * np.maximum(np.cos(Itheta - _ANGLES[i])**_ALPHA,
                                            0)
         
-        currFeature = np.zeros((_NUM_ANGLES,_NUM_SAMPLES))
+        currFeature = np.zeros((_NUM_ANGLES, _NUM_SAMPLES))
         for i, hs in enumerate(rangeH):
             for j, ws in enumerate(rangeW):
                 for k in range(_NUM_ANGLES):
                     currFeature[k] = np.dot(self.weights,
                                             Iorient[k,
-                                                    hs:hs+self.pS,
-                                                    ws:ws+self.pS
+                                                    hs:hs + self.pS,
+                                                    ws:ws + self.pS
                                                    ].flatten())
-                feat[i,j] = currFeature.flat
+                feat[i, j] = currFeature.flat
         return feat
 
-    def normalize_sift(self,feat):
+    def normalize_sift(self, feat):
         '''
         This function does sift feature normalization
         following David Lowe's definition (normalize length ->
         thresholding at 0.2 -> renormalize length)
         '''
-        siftlen = np.sqrt(np.sum(feat**2,axis=-1))
+        siftlen = np.sqrt(np.sum(feat**2, axis=-1))
         hcontrast = (siftlen >= self.nrml_thres)
         siftlen[siftlen < self.nrml_thres] = self.nrml_thres
         # normalize with contrast thresholding
-        feat /= siftlen[:,:,np.newaxis]
+        feat /= siftlen[:, :, np.newaxis]
         # suppress large gradients
-        feat[feat>self.sift_thres] = self.sift_thres
+        feat[feat > self.sift_thres] = self.sift_thres
         # renormalize high-contrast ones
-        feat[hcontrast] /= np.sqrt(np.sum(feat[hcontrast]**2,axis=-1))\
+        feat[hcontrast] /= np.sqrt(np.sum(feat[hcontrast]**2, axis=-1))\
                 [:, np.newaxis]
         return feat
