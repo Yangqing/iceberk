@@ -43,6 +43,41 @@ def gen_dgauss(sigma,fwid=None):
     GW *= 2.0/np.sum(np.abs(GW))
     return GH, GW
 
+
+class OrientedGradientExtractor(pipeline.Extractor):
+    """The class that does oriented gradient extraction
+    """
+    def __init__(self, specs = {}):
+        """
+        specs:
+            sigma_edge: the standard deviation for the gaussian smoothing
+                before computing the gradient
+        """
+        self.sigma = specs.get('sigma_edge', 1.0)
+        self.GH, self.GW = gen_dgauss(self.sigma)
+        
+    def process(self, image):
+        image = image.astype(np.double)
+        if image.max() > 1:
+            # The image is between 0 and 255 - we need to convert it to [0,1]
+            image /= 255;
+        if image.ndim == 3:
+            # we do not deal with color images.
+            image = np.mean(image,axis=2)
+        H,W = image.shape
+        IH = filters.convolve(image, self.GH, mode='nearest')
+        IW = filters.convolve(image, self.GW, mode='nearest')
+        I_mag = np.sqrt(IH ** 2 + IW ** 2)
+        I_theta = np.arctan2(IH, IW)
+        I_orient = np.empty((H, W, _NUM_ANGLES))
+        for i in range(_NUM_ANGLES):
+            I_orient[:,:,i] = I_mag * np.maximum(
+                    np.cos(I_theta - _ANGLES[i]) ** _ALPHA, 0)
+        return I_orient
+
+    def sample(self, dataset, num_samples):
+        raise NotImplementedError
+    
 class DsiftExtractor(pipeline.Extractor):
     '''
     The class that does dense sift feature computation.
@@ -66,6 +101,8 @@ class DsiftExtractor(pipeline.Extractor):
         self.nrml_thres = specs.get('nrml_thres', 1.0)
         self.sigma = specs.get('sigma_edge', 1.0)
         self.sift_thres = specs.get('sift_thres', 0.2)
+        # precompute gradient filters
+        self.GH, self.GW = gen_dgauss(self.sigma)
         # compute the weight contribution map
         sample_res = self.pS / np.double(_NUM_BINS)
         sample_p = np.array(range(self.pS))
@@ -167,27 +204,21 @@ class DsiftExtractor(pipeline.Extractor):
         H,W = image.shape
         feat = np.zeros((len(rangeH), len(rangeW), _NUM_SAMPLES*_NUM_ANGLES))
 
-        # calculate gradient
-        GH,GW = gen_dgauss(self.sigma)
-        IH = filters.convolve(image, GH, mode='nearest')
-        IW = filters.convolve(image, GW, mode='nearest')
-        Imag = np.sqrt(IH ** 2 + IW ** 2)
-        Itheta = np.arctan2(IH, IW)
-        Iorient = np.zeros((_NUM_ANGLES, H, W))
+        IH = filters.convolve(image, self.GH, mode='nearest')
+        IW = filters.convolve(image, self.GW, mode='nearest')
+        I_mag = np.sqrt(IH ** 2 + IW ** 2)
+        I_theta = np.arctan2(IH, IW)
+        I_orient = np.empty((H, W, _NUM_ANGLES))
         for i in range(_NUM_ANGLES):
-            Iorient[i] = Imag * np.maximum(np.cos(Itheta - _ANGLES[i])**_ALPHA,
-                                           0)
+            I_orient[:,:,i] = I_mag * np.maximum(
+                    np.cos(I_theta - _ANGLES[i]) ** _ALPHA, 0)
         
-        currFeature = np.zeros((_NUM_ANGLES, _NUM_SAMPLES))
         for i, hs in enumerate(rangeH):
             for j, ws in enumerate(rangeW):
-                for k in range(_NUM_ANGLES):
-                    currFeature[k] = np.dot(self.weights,
-                                            Iorient[k,
-                                                    hs:hs + self.pS,
-                                                    ws:ws + self.pS
-                                                   ].flatten())
-                feat[i, j] = currFeature.flat
+                feat[i, j] = np.dot(self.weights,
+                                    I_orient[hs:hs+self.pS, ws:ws+self.pS]\
+                                        .reshape(self.pS**2, _NUM_ANGLES)
+                                   ).flatten()
         return feat
 
     def normalize_sift(self, feat):
