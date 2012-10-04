@@ -13,6 +13,14 @@ import os
 from PIL import Image
 from sklearn import metrics
 
+# we try to import bottleneck: this helps computing the nearest neighbors in 
+# LLC faster. Otherwise, we will simply use np.argsort.
+try:
+    import bottleneck as bn
+except ImportError:
+    logging.warning('Cannot find bottleneck, using numpy as backup.')
+    bn = None
+
 
 class Component(object):
     """ The common interface to process an input image
@@ -472,25 +480,31 @@ class LLCEncoder(FeatureEncoder):
         X = image.reshape((np.prod(shape), image.shape[-1]))
         # D_norm is the precomputed norm of the entries
         if 'D_norm' not in self.specs:
-            self.specs['D_norm'] = np.sum(D**2,1) / 2.
+            self.specs['D_norm'] = (D**2).sum(1) / 2.
         D_norm = self.specs['D_norm']
-        # similarity is not the distance, but the 
-        # order is preserved (reversed order as distance).
-        similarity = np.dot(X, D.T) - D_norm
-        IDX = np.argsort(similarity,1)
+        distance = mathutil.dot(X, -D.T)
+        distance += D_norm
+        # find the K closest indices
+        if bn is not None:
+            # use bottleneck which would be faster
+            IDX = bn.argpartsort(distance, K, axis=1)[:, :K]
+        else:
+            IDX = np.argsort(distance,1)[:, :K]
     
         # do LLC approximate coding
         coeff = np.zeros((X.shape[0], D.shape[0]))
         ONES = np.ones(K)
+        Z = np.empty((K, D.shape[1]))
         for i in range(X.shape[0]):
             # shift to origin
-            z = D[IDX[i, :K]] - X[i]
+            Z[:] = D[IDX[i]]
+            Z -= X[i]
             # local covariance
-            C = np.dot(z,z.T)
-            # regularization
-            C.flat[::K+1] = reg * C.trace()
+            C = mathutil.dot(Z,Z.T)
+            # add regularization
+            C.flat[::K+1] += reg * C.trace()
             w = np.linalg.solve(C,ONES)
-            coeff[i][IDX[i,:K]] = w / w.sum()
+            coeff[i][IDX[i]] = w / w.sum()
         return coeff.reshape(shape + (coeff.shape[1],))
 
 class Pooler(Component):
