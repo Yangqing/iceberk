@@ -118,6 +118,9 @@ class DsiftExtractor(pipeline.Extractor):
                     replace_id = np.random.randint(feat.shape[0],
                                                    size=replace_num)
                     data[replace_id] = feat[to_replace]
+        # cut unallocated ones
+        if curr < num_patches:
+            data = data[:curr]
         return data
         
     def process(self, image):
