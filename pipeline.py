@@ -66,12 +66,11 @@ class ConvLayer(list):
         any training (if they do, you may want to move them to the next layer
         """
         logging.debug("Training convolutional layer...")
-        if not isinstance(self[0], PatchExtractor):
+        if not isinstance(self[0], Extractor):
             raise ValueError, \
                   "The first component should be a patch extractor!"
         logging.debug("Extracting random patches...")
-        patches = self[0].sample(dataset, 
-                                 int(round(num_patches / mpi.SIZE + 0.5)))
+        patches = self[0].sample(dataset, num_patches)
         for component in self[1:]:
             logging.debug("Training %s..." % (component.__class__.__name__))
             if isinstance(component, Pooler):
@@ -96,8 +95,52 @@ class ConvLayer(list):
         for i in range(1,dataset.size()):
             data[i] = self.process(dataset.image(i), as_vector = as_2d)
         return data
+
+class Extractor(Component):
+    """Extractor is just an abstract class that holds all extractor subclasses
+    """
+    def train(self, incoming_patches):
+        raise RuntimeError,\
+            "You should not call the train() function of a extractor."
             
-class PatchExtractor(object):
+class IdenticalExtractor(Extractor):
+    """A dummy extractor that simply extracts the image itself
+    """
+    def __init__(self):
+        pass
+    
+    def sample(self, dataset, num_patches):
+        """ randomly sample num_patches from the dataset
+        """
+        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
+        patches = np.empty((num_patches, dataset.num_channels()))
+        # do approximate reservoir sampling
+        curr = 0
+        for i in range(dataset.size()):
+            feat = dataset.image(i)
+            feat = feat.reshape(np.prod(feat.shape[:2]),
+                                dataset.num_channels())
+            # we perform approximate reservoir sampling
+            if curr < num_patches:
+                num_to_add = np.minimum(num_patches - curr, feat.shape[0])
+                patches[curr:curr + num_to_add] = feat[:num_to_add]
+                curr += num_to_add
+            else:
+                # do random replacement
+                curr += feat.shape[0]
+                to_replace = (np.random.rand(feat.shape[0]) \
+                              > num_patches / float(curr))
+                replace_num = to_replace.sum()
+                if replace_num > 0:
+                    replace_id = np.random.randint(feat.shape[0],
+                                                   size=replace_num)
+                    patches[replace_id] = feat[to_replace]
+        return patches
+    
+    def process(self, image):
+        return np.atleast_3d(image.copy())
+
+class PatchExtractor(Extractor):
     """The patch extractor. It densely extracts overlapping patches, and 
     convert them as an NDarray which could be passed on to different 
     components.
@@ -122,6 +165,7 @@ class PatchExtractor(object):
         The returned patches would be a 2-dimensional ndarray of size
             [num_patches, psize[0] * psize[1] * num_channels]
         """
+        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
         imids = np.random.randint(dataset.size(), size=num_patches)
         # sort the ids so we don't need to re-read images when sampling
         imids.sort()
@@ -364,6 +408,19 @@ class InnerProductEncoder(FeatureEncoder):
     """
     def process(self, image):
         return mathutil.dot_image(image, self.dictionary.T)
+
+class VQEncoder(FeatureEncoder):
+    """ Vector quantization encoder
+    """
+    def process(self, image):
+        shape = image.shape[:-1]
+        num_channels = image.shape[-1]
+        image_2d = image.reshape((np.prod(shape), num_channels))
+        distance = metrics.euclidean_distances(image_2d, self.dictionary)
+        output = np.zeros_like(distance)
+        idx = distance.argmin(axis=1)
+        output[:,idx] = 1
+        return output.reshape(shape + (output.shape[-1],))
 
 class ThresholdEncoder(FeatureEncoder):
     """ Like inner product encoder, but does thresholding to zero-out small
