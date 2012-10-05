@@ -1,13 +1,14 @@
-import cPickle as pickle
+"""Datasets implements some basic structures to deal with a dataset
+"""
 import glob
-from jiayq_ice import pipeline, mpi
+from jiayq_ice import mpi
 import numpy as np
 import os
 from PIL import Image
 from scipy import misc
 
 
-def imread_RGB(fname):
+def imread_rgb(fname):
     '''This imread deals with occasional cases when scipy.misc.imread fails to
     load an image correctly.
     '''
@@ -118,7 +119,7 @@ class TwoLayerDataset(ImageSet):
     Caltech-101
     """
     def __init__(self, root_folder, extensions, prefetch = False, 
-                 target_size = None):
+                 target_size = None, max_size = None):
         """ Initialize from a two-layer storage
         Input:
             root_folder: the root that contains the data. Under root_folder
@@ -131,6 +132,9 @@ class TwoLayerDataset(ImageSet):
                 of memory.
             target_size: if provided, all images are resized to the size 
                 specified. Should be a list of two integers, like [640,480].
+            max_size: if provided, any image that is larger than the max size
+                is scaled so that its larger edge has max_size. if target_size
+                is set, it overrides max_size.
         """
         super(TwoLayerDataset, self).__init__()
         if mpi.agree(not os.path.exists(root_folder)):
@@ -157,6 +161,7 @@ class TwoLayerDataset(ImageSet):
         self._data = mpi.distribute_list(files)
         self._prefetch = prefetch
         self.target_size = target_size
+        self._max_size = max_size
         if target_size != None:
             self._dim = tuple(target_size) + (3,)
         else:
@@ -165,11 +170,16 @@ class TwoLayerDataset(ImageSet):
         if prefetch:
             self._data = [self._read(idx) for idx in range(len(self._data))]
         self._label = mpi.distribute_list(labels)
-        self.classnames = mpi.COMM.bcast(classnames)
+        self._classnames = mpi.COMM.bcast(classnames)
     
     def _read(self, idx):
         if self.target_size is not None:
-            return misc.imresize(imread_RGB(self._data[idx]),
+            return misc.imresize(imread_rgb(self._data[idx]),
                                  self.target_size)
         else:
-            return imread_RGB(self._data[idx])
+            img = imread_rgb(self._data[idx])
+            if self._max_size is not None and \
+                    max(img.shape[:2]) > self._max_size:
+                ratio = self._max_size / float(max(img.shape[:2]))
+                img = misc.imresize(img, ratio)
+            return img
