@@ -594,8 +594,22 @@ class PyramidPooler(MetaPooler):
     
     The current code is a hack by stacking spatial poolers. In the future we
     should write it in a more efficient way.
+    
+    specs:
+        level: an int indicating the number of pyramid levels. For example, 3
+            means performing 1x1, 2x2 and 4x4 pooling. Alternately, specify a
+            list of levels, e.g., [1,3] to specify 1x1 and 4x4 pooling.
+        method: 'max', 'ave' or 'rms'.
     """
-    pass
+    def __init__(self, specs):
+        basic_poolers = []
+        level = specs['level']
+        if type(level) is int:
+            level = range(1, level)
+        for i in level:
+            basic_poolers.append(
+                    SpatialPooler({'grid': 2**i, 'method': specs['method']}))
+        super(PyramidPooler, self).__init__(basic_poolers, specs)
 
 
 class WeightedPooler(Pooler):
