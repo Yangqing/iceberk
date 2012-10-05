@@ -208,17 +208,17 @@ class DsiftExtractor(pipeline.Extractor):
         IW = filters.convolve(image, self.GW, mode='nearest')
         I_mag = np.sqrt(IH ** 2 + IW ** 2)
         I_theta = np.arctan2(IH, IW)
+        
         I_orient = np.empty((H, W, _NUM_ANGLES))
         for i in range(_NUM_ANGLES):
             I_orient[:,:,i] = I_mag * np.maximum(
                     np.cos(I_theta - _ANGLES[i]) ** _ALPHA, 0)
-        
         for i, hs in enumerate(rangeH):
             for j, ws in enumerate(rangeW):
                 feat[i, j] = np.dot(self.weights,
                                     I_orient[hs:hs+self.pS, ws:ws+self.pS]\
                                         .reshape(self.pS**2, _NUM_ANGLES)
-                                   ).flatten()
+                                   ).flat
         return feat
 
     def normalize_sift(self, feat):
