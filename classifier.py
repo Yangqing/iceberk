@@ -18,6 +18,7 @@ import numpy as np
 from scipy import optimize
 from sklearn import metrics
 
+
 _FMIN = optimize.fmin_l_bfgs_b
 
 def to_one_of_k_coding(Y):
@@ -407,11 +408,40 @@ class Evaluator(object):
     """Evaluator implements some commonly-used criteria for evaluation
     """
     @staticmethod
+    def mse(Y, pred, axis=None):
+        """Return the mean squared error of the true value and the prediction
+        Input:
+            Y, pred: the true value and the prediction
+            axis: (optional) if Y and pred are matrices, you can specify the
+                axis along which the mean is carried out.
+        """
+        return ((Y - pred) ** 2).mean(axis=axis)
+    
+    @staticmethod
     def accuracy(Y, pred):
         """Computes the accuracy
-        Input: Y and pred should be two vectors containing discrete labels
+        Input: 
+            Y, pred: two vectors containing discrete labels
         """
         correct = mpi.COMM.allreduce((Y==pred).sum())
+        num_data = mpi.COMM.allreduce(len(Y))
+        return float(correct) / num_data
+    
+    @staticmethod
+    def top_k_accuracy(Y, pred, k):
+        """Computes the top k accuracy
+        Input:
+            Y: a vector containing the discrete labels of each datum
+            pred: a matrix of size len(Y) * num_classes, each row containing the
+                real value scores for the corresponding label. The classes with
+                the highest k scores will be considered.
+        """
+        if k > pred.shape[1]:
+            logging.warning("Warning: k is larger than the number of classes"
+                            "so the accuracy would always be one.")
+        top_k_id = np.argsort(pred, axis=1)[-k:]
+        match = (top_k_id == Y[:, np.newaxis])
+        correct = mpi.COMM.allreduce(match.sum())
         num_data = mpi.COMM.allreduce(len(Y))
         return float(correct) / num_data
     
@@ -419,6 +449,8 @@ class Evaluator(object):
     def average_precision(Y, pred):
         """Average Precision for binary classification
         """
+        # since we need to compute the precision recall curve, we have to
+        # compute this on the root node.
         Y = mpi.COMM.gather(Y)
         pred = mpi.COMM.gather(pred)
         if mpi.is_root():
@@ -429,6 +461,7 @@ class Evaluator(object):
             ap = metrics.auc(recall, precision)
         else:
             ap = None
+        mpi.barrier()
         return mpi.COMM.bcast(ap)
     
     @staticmethod
@@ -438,6 +471,7 @@ class Evaluator(object):
         K = pred.shape[1]
         aps = [Evaluator.average_precision(Y==k, pred[:,k]) for k in range(K)]
         return np.asarray(aps).mean()
+
 '''
 Utility functions that wraps often-used functions
 '''

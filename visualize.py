@@ -92,3 +92,17 @@ class PatchVisualizer:
             edgeLen = int(edgeLen)
             return (edgeLen,edgeLen)
 
+_default_visualizer = PatchVisualizer()
+
+"""Utility functions that directly points to functions in the default visualizer
+"""
+
+def show_single(*args, **kwargs):
+    return _default_visualizer.show_single(*args, **kwargs)
+
+def show_multiple(*args, **kwargs):
+    return _default_visualizer.show_single(*args, **kwargs)
+
+def show_channels(*args, **kwargs):
+    return _default_visualizer.show_single(*args, **kwargs)
+
