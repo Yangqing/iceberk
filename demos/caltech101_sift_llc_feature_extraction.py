@@ -24,9 +24,6 @@ gflags.RegisterValidator('root', lambda x: x != "",
                          message='--root must be provided.')
 gflags.DEFINE_string("feature_dir", ".",
                      "The directory that stores dumped features.")
-gflags.DEFINE_string("compute_feature", False,
-                     "If true, compute the features. Otherwise, Load features"
-                     "directly from the feature_dir")
 gflags.DEFINE_string("model_file", "conv.pickle",
                      "The filename to output the model.")
 gflags.DEFINE_string("feature_file", "features",
@@ -58,15 +55,16 @@ def compute_caltech_features():
     conv.train(caltech, 400000)
     feat = conv.process_dataset(caltech, as_2d = True)
     
+    mpi.mkdir(FLAGS.feature_dir)
     if mpi.is_root():
-        with(open(os.path.join(FLAGS.output_dir, FLAGS.model_file),'r')) as fid:
+        with(open(os.path.join(FLAGS.feature_dir, FLAGS.model_file),'w')) as fid:
             pickle.dump(conv, fid)
     
     mpi.dump_matrix_multi(feat, 
-                          os.path.join(FLAGS.output_dir, 
+                          os.path.join(FLAGS.feature_dir, 
                                        FLAGS.feature_file))
     mpi.dump_matrix_multi(caltech.labels(),
-                          os.path.join(FLAGS.output_dir,
+                          os.path.join(FLAGS.feature_dir,
                                        FLAGS.label_file))
 
 if __name__ == "__main__":

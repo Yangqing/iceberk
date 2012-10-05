@@ -181,7 +181,7 @@ def dump_matrix_multi(mat, filename):
     if SIZE > 99999:
         # this usually won't happen, but we leave the sanity check here
         raise ValueError, 'I cannot deal with too many MPI instances.'
-    logging.debug("Dumping the matrix to {} parts" % SIZE)
+    logging.debug("Dumping the matrix to %d parts" % SIZE)
     my_filename = '%s-%05d-of-%05d.npy' % (filename, RANK, SIZE)
     np.save(my_filename, mat)
     
@@ -192,7 +192,7 @@ def load_matrix_multi(filename):
     """
     files= glob.glob('%s-?????-of-?????.npy' % (filename))
     N = len(files)
-    logging.debug("Loading the matrix from {} parts" % N)
+    logging.debug("Loading the matrix from %d parts" % N)
     if N == SIZE:
         # we are lucky
         mat = np.load('%s-%05d-of-%05d.npy' % (filename, RANK, SIZE))

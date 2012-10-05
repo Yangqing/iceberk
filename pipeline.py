@@ -80,11 +80,14 @@ class ConvLayer(list):
         logging.debug("Extracting random patches...")
         patches = self[0].sample(dataset, num_patches)
         for component in self[1:]:
+            mpi.barrier()
             logging.debug("Training %s..." % (component.__class__.__name__))
             if isinstance(component, Pooler):
                 # if we've reached pooler, stop training
                 break
             patches = component.train(patches)
+        logging.debug("Training convolutional layer done.")
+        
         
     def process(self, image, as_vector = False):
         output = image
@@ -105,7 +108,7 @@ class ConvLayer(list):
                 row in the matrix. Default False.
         """
         total = dataset.size_total()
-        logging.debug("Processing a total of {} images" % total)
+        logging.debug("Processing a total of %s images" % (total,))
         if as_list:
             data = self.process(dataset.image(i) for i in range(dataset.size()))
         else:

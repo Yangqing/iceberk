@@ -2,6 +2,7 @@
 """
 import glob
 from jiayq_ice import mpi
+import logging
 import numpy as np
 import os
 from PIL import Image
@@ -139,6 +140,7 @@ class TwoLayerDataset(ImageSet):
         super(TwoLayerDataset, self).__init__()
         if mpi.agree(not os.path.exists(root_folder)):
             raise OSError, "The specified folder does not exist."
+        logging.debug('Loading from %s' % (root_folder,))
         if type(extensions) is str:
             extensions = [extensions]
         if mpi.is_root():

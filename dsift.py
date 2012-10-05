@@ -173,8 +173,8 @@ class DsiftExtractor(pipeline.Extractor):
         offsetW = remW/2
         rangeH = np.arange(offsetH,H-pS+1,gS)
         rangeW = np.arange(offsetW, W-pS+1, gS)
-        logging.debug('Image: w {}, h {}, gs {}, ps {}, nFea {}'.\
-                      format(W,H,gS,pS,len(rangeH)*len(rangeW)))
+        #logging.debug('Image: w {}, h {}, gs {}, ps {}, nFea {}'.\
+        #              format(W,H,gS,pS,len(rangeH)*len(rangeW)))
         feat = self.calculate_sift_grid(image,rangeH,rangeW)
         feat = self.normalize_sift(feat)
         return feat
