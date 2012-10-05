@@ -86,14 +86,25 @@ class ConvLayer(list):
             output.resize(np.prod(output.shape))
         return output
     
-    def process_dataset(self, dataset, as_2d = False):
+    def process_dataset(self, dataset, as_list = False, as_2d = False):
         """Processes a whole dataset and returns an numpy ndarray
+        
+        Input:
+            dataset: the input dataset.
+            as_list: if True, return a list. This applies when the output has
+                different sizes for each image. Default False.
+            as_2d: if True, return a matrix where each image corresponds to a
+                row in the matrix. Default False.
         """
-        temp = self.process(dataset.image(0), as_vector = as_2d)
-        data = np.empty((dataset.size(),) + temp.shape)
-        data[0] = temp
-        for i in range(1,dataset.size()):
-            data[i] = self.process(dataset.image(i), as_vector = as_2d)
+        if as_list:
+            data = self.process(dataset.image(i) for i in range(dataset.size()))
+        else:
+            # we assume that each image leads to the same feature size
+            temp = self.process(dataset.image(0), as_vector = as_2d)
+            data = np.empty((dataset.size(),) + temp.shape)
+            data[0] = temp
+            for i in range(1,dataset.size()):
+                data[i] = self.process(dataset.image(i), as_vector = as_2d)
         return data
 
 class Extractor(Component):
@@ -135,6 +146,8 @@ class IdenticalExtractor(Extractor):
                     replace_id = np.random.randint(feat.shape[0],
                                                    size=replace_num)
                     patches[replace_id] = feat[to_replace]
+        if (curr < num_patches):
+            patches = patches[:curr]
         return patches
     
     def process(self, image):
@@ -461,12 +474,17 @@ class TriangleEncoder(FeatureEncoder):
                     
 class LLCEncoder(FeatureEncoder):
     """Encode with LLC
+    
+    specs:
+         k: the number of LLC nearest neighbors. default 5.
+         reg: the LLC reconstruction regularize. default 1e-4.
+         (default values from Jianchao Yang's LLC paper in CVPR 2010)
     """
     def process(self, image):
         '''Performs llc encoding.
         '''
-        K = self.specs['k']
-        reg = self.specs['reg']
+        K = self.specs.get('k', 5)
+        reg = self.specs.get('reg', 1e-4)
         D = self.dictionary
         shape = image.shape[:-1]
         X = image.reshape((np.prod(shape), image.shape[-1]))
@@ -478,7 +496,7 @@ class LLCEncoder(FeatureEncoder):
         # order is preserved (reversed order as distance).
         similarity = np.dot(X, D.T) - D_norm
         IDX = np.argsort(similarity,1)
-    
+
         # do LLC approximate coding
         coeff = np.zeros((X.shape[0], D.shape[0]))
         ONES = np.ones(K)
@@ -486,7 +504,7 @@ class LLCEncoder(FeatureEncoder):
             # shift to origin
             z = D[IDX[i, :K]] - X[i]
             # local covariance
-            C = np.dot(z,z.T)
+            C = mathutil.dot(z, z.T)
             # regularization
             C.flat[::K+1] = reg * C.trace()
             w = np.linalg.solve(C,ONES)
@@ -502,6 +520,9 @@ class Pooler(Component):
 
 class SpatialPooler(Pooler):
     """ The spatial Pooler that does spatial pooling on a regular grid.
+    specs:
+        grid: an int or a tuple indicating the pooling grid.
+        method: 'max', 'ave' or 'rms'.
     """
     _METHODS = {'max':0, 'ave': 1, 'rms': 2}
     # fast pooling C library
