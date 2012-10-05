@@ -531,6 +531,23 @@ class Pooler(Component):
         raise RuntimeError,\
             "You should not call the train() function of a pooler."
 
+
+class MetaPooler(Pooler):
+    """MetaPooler is a wrapper that combines the output of multiple simple
+    poolers.
+    """
+    def __init__(self, basic_poolers, specs={}):
+        """Initialize with a list of basic poolers
+        """
+        self._basic_poolers = basic_poolers
+        self.specs = specs
+
+    def process(self, image):
+        output = []
+        for basic_pooler in self._basic_poolers:
+            output.append(basic_pooler.process(image).flatten())
+        return np.hstack(output)
+
 class SpatialPooler(Pooler):
     """ The spatial Pooler that does spatial pooling on a regular grid.
     specs:
@@ -571,6 +588,28 @@ class SpatialPooler(Pooler):
                 ct.c_int(SpatialPooler._METHODS[self.specs['method']]),
                 output.ctypes.data_as(ct.POINTER(ct.c_double)))
         return output
+
+class PyramidPooler(MetaPooler):
+    """PyramidPooler performs pyramid pooling.
+    
+    The current code is a hack by stacking spatial poolers. In the future we
+    should write it in a more efficient way.
+    
+    specs:
+        level: an int indicating the number of pyramid levels. For example, 3
+            means performing 1x1, 2x2 and 4x4 pooling. Alternately, specify a
+            list of levels, e.g., [1,3] to specify 1x1 and 4x4 pooling.
+        method: 'max', 'ave' or 'rms'.
+    """
+    def __init__(self, specs):
+        basic_poolers = []
+        level = specs['level']
+        if type(level) is int:
+            level = range(1, level)
+        for i in level:
+            basic_poolers.append(
+                    SpatialPooler({'grid': 2**i, 'method': specs['method']}))
+        super(PyramidPooler, self).__init__(basic_poolers, specs)
 
 
 class WeightedPooler(Pooler):
