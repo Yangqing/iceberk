@@ -6,7 +6,7 @@ contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
 import ctypes as ct
-from jiayq_ice import kmeans_mpi, mpi, omp_mpi, mathutil
+from jiayq_ice import kmeans_mpi, mpi, omp_mpi, mathutil, mathutil
 import logging
 import numpy as np
 import os
@@ -134,31 +134,13 @@ class IdenticalExtractor(Extractor):
         """ randomly sample num_patches from the dataset
         """
         num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        patches = np.empty((num_patches, dataset.num_channels()))
-        # do approximate reservoir sampling
-        curr = 0
+        sampler = mathutil.ReservoirSampler()
         for i in range(dataset.size()):
             feat = dataset.image(i)
             feat = feat.reshape(np.prod(feat.shape[:2]),
                                 dataset.num_channels())
-            # we perform approximate reservoir sampling
-            if curr < num_patches:
-                num_to_add = np.minimum(num_patches - curr, feat.shape[0])
-                patches[curr:curr + num_to_add] = feat[:num_to_add]
-                curr += num_to_add
-            else:
-                # do random replacement
-                curr += feat.shape[0]
-                to_replace = (np.random.rand(feat.shape[0]) \
-                              > num_patches / float(curr))
-                replace_num = to_replace.sum()
-                if replace_num > 0:
-                    replace_id = np.random.randint(feat.shape[0],
-                                                   size=replace_num)
-                    patches[replace_id] = feat[to_replace]
-        if (curr < num_patches):
-            patches = patches[:curr]
-        return patches
+            sampler.consider(feat)
+        return sampler.get()
     
     def process(self, image):
         return np.atleast_3d(image.copy())

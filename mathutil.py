@@ -69,3 +69,60 @@ def exp(X):
     """
     X = np.maximum(X,100)
     return np.exp(X)
+
+
+
+class ReservoirSampler(object):
+    """reservoir_sampler implements the reservoir sampling method based on numpy
+    matrices. It does NOT use mpi - each mpi node does sampling on its own.
+    """
+    def __init__(self, num_samples):
+        """Initializes the sampler by giving the number of data points N
+        """
+        self._num_samples = num_samples
+        self._current = 0
+        self._data = None
+        
+    def consider(self, feature):
+        """Consider a feature batch. feature.shape[1:] should be the same for
+        any batch.
+        """
+        if self._data is None:
+            self._data = np.empty((self._num_samples,) + feature.shape[1:],
+                                  dtype=feature.dtype)
+        elif self._data.shape[1:] != feature.shape[1:]:
+            raise ValueError, \
+                    "Input data has the wrong size, should be %s " \
+                    % str(feature.shape[1:])
+        batch_size = feature.shape[0]
+        if self._current >= self._num_samples:
+            # to make sure we have unbiased sampling, we do 2 steps: first
+            # decide whether to use one sample or not, then decide which one it
+            # should replace
+            # we need to decide if we want to keep the feature
+            selected = np.random.rand(batch_size) < \
+                    (float(self._num_samples) / np.arange(self._current + 1,
+                            self._current + batch_size + 1))
+            count = selected.sum()
+            self._data[np.random.randint(self._num_samples, size = count)] = \
+                    feature[selected]
+            self._current += batch_size
+        else:
+            # we need to fill the data first, and then deal with remaining
+            # features
+            count = min(self._num_samples - self._current, batch_size)
+            self._data[self._current:self._current+count] = feature[:count]
+            self._current += count
+            if count < batch_size:
+                # we have remaining features to consider
+                self.consider(feature[count:])
+    
+    def get(self):
+        """After considering all samples, call get() to get the sampled
+        features
+        """
+        if self._current < self._num_samples:
+            # not enough data considered. Only return valid ones
+            return self._data[:self._current]
+        else:
+            return self._data

@@ -10,7 +10,7 @@ Yangqing Jia, jiayq@eecs.berkeley.edu
 '''
 
 import numpy as np
-from jiayq_ice import pipeline, mpi
+from jiayq_ice import pipeline, mpi, mathutil
 import logging
 from scipy.ndimage import filters
 
@@ -135,30 +135,12 @@ class DsiftExtractor(pipeline.Extractor):
         not be a very efficient way
         """
         num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        data = np.empty((num_patches, _NUM_SAMPLES*_NUM_ANGLES))
-        curr = 0
+        sampler = mathutil.ReservoirSampler(num_patches)
         for i in range(dataset.size()):
             feat = self.process(dataset.image(i))
             feat.resize(np.prod(feat.shape[:2]), feat.shape[2])
-            # we perform approximate reservoir sampling
-            if curr < num_patches:
-                num_to_add = np.minimum(num_patches - curr, feat.shape[0])
-                data[curr:curr + num_to_add] = feat[:num_to_add]
-                curr += num_to_add
-            else:
-                # do random replacement
-                curr += feat.shape[0]
-                to_replace = (np.random.rand(feat.shape[0]) \
-                              > num_patches / float(curr))
-                replace_num = to_replace.sum()
-                if replace_num > 0:
-                    replace_id = np.random.randint(feat.shape[0],
-                                                   size=replace_num)
-                    data[replace_id] = feat[to_replace]
-        # cut unallocated ones
-        if curr < num_patches:
-            data = data[:curr]
-        return data
+            sampler.consider(feat)
+        return sampler.get()
         
     def process(self, image):
         '''

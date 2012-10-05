@@ -2,8 +2,8 @@ from jiayq_ice import mathutil
 import numpy as np
 import unittest
 
-class TestMPI(unittest.TestCase):
-    """Test the mpi module
+class TestMathutil(unittest.TestCase):
+    """Test the mathutil module
     """
     def setUp(self):
         self.test_matrices = [
@@ -62,6 +62,24 @@ class TestMPI(unittest.TestCase):
         self.assertTrue(result.flags['C_CONTIGUOUS'])
         self.assertEqual(result.shape[:-1], A.shape[:-1])
         self.assertEqual(result.shape[-1], B.shape[-1])
+    
+    def testreservoir_sampler(self):
+        # test size
+        sampler = mathutil.ReservoirSampler(100)
+        sampler.consider(np.random.rand(40,10))
+        self.assertEqual(sampler.get().shape, (40, 10))
+        sampler.consider(np.random.rand(40,10))
+        self.assertEqual(sampler.get().shape, (80,10))
+        sampler.consider(np.random.rand(40,10))
+        self.assertEqual(sampler.get().shape, (100,10))
+        # test if replacing does work
+        sampler = mathutil.ReservoirSampler(10)
+        sampler.consider(np.zeros((10,10)))
+        np.testing.assert_array_equal(sampler.get(), 0)
+        # with very high probabibility, one sample will be nonzero
+        sampler.consider(np.ones((100,10)))
+        self.assertGreater(sampler.get().sum(), 0)
+        
         
 if __name__ == '__main__':
     unittest.main()
