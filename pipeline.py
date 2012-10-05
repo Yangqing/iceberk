@@ -514,6 +514,23 @@ class Pooler(Component):
         raise RuntimeError,\
             "You should not call the train() function of a pooler."
 
+
+class MetaPooler(Pooler):
+    """MetaPooler is a wrapper that combines the output of multiple simple
+    poolers.
+    """
+    def __init__(self, basic_poolers, specs={}):
+        """Initialize with a list of basic poolers
+        """
+        self._basic_poolers = basic_poolers
+        self.specs = specs
+
+    def process(self, image):
+        output = []
+        for basic_pooler in self._basic_poolers:
+            output.append(basic_pooler.process(image).flatten())
+        return np.hstack(output)
+
 class SpatialPooler(Pooler):
     """ The spatial Pooler that does spatial pooling on a regular grid.
     """
@@ -551,6 +568,14 @@ class SpatialPooler(Pooler):
                 ct.c_int(SpatialPooler._METHODS[self.specs['method']]),
                 output.ctypes.data_as(ct.POINTER(ct.c_double)))
         return output
+
+class PyramidPooler(MetaPooler):
+    """PyramidPooler performs pyramid pooling.
+    
+    The current code is a hack by stacking spatial poolers. In the future we
+    should write it in a more efficient way.
+    """
+    pass
 
 
 class WeightedPooler(Pooler):
