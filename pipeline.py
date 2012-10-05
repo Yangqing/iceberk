@@ -104,6 +104,8 @@ class ConvLayer(list):
             as_2d: if True, return a matrix where each image corresponds to a
                 row in the matrix. Default False.
         """
+        total = dataset.size_total()
+        logging.debug("Processing a total of {} images" % total)
         if as_list:
             data = self.process(dataset.image(i) for i in range(dataset.size()))
         else:
@@ -358,6 +360,13 @@ class ZcaTrainer(PcaTrainer):
         return (W, b), (eigval, eigvec)
 
 class KmeansTrainer(DictionaryTrainer):
+    """KmeansTrainer Performs Kmeans training
+    specs:
+        k: the number of kmeans centers
+        n_init: number of indepent kmeans tries (default 1)
+        max_iter: the maximum mumber of kmeans iterations (default 100)
+        tol: the tolerance threshold before we stop iterating (default 1e-4)
+    """
     def train(self, incoming_patches):
         centroid, label, inertia = \
             kmeans_mpi.kmeans(incoming_patches, 
