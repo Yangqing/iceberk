@@ -75,8 +75,14 @@ class OrientedGradientExtractor(pipeline.Extractor):
                     np.cos(I_theta - _ANGLES[i]) ** _ALPHA, 0)
         return I_orient
 
-    def sample(self, dataset, num_samples):
-        raise NotImplementedError
+    def sample(self, dataset, num_patches):
+        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
+        sampler = mathutil.ReservoirSampler(num_patches)
+        for i in range(dataset.size()):
+            feat = self.process(dataset.image(i))
+            feat.resize(np.prod(feat.shape[:2]), feat.shape[2])
+            sampler.consider(feat)
+        return sampler.get()
     
 class DsiftExtractor(pipeline.Extractor):
     '''

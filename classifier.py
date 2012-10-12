@@ -283,8 +283,7 @@ class Loss(object):
         
     @staticmethod
     def loss_hinge(Y, pred, weight, **kwargs):
-        '''
-        The SVM hinge loss
+        '''The SVM hinge loss. Input vector Y should have values 1 or -1
         '''
         margin = np.maximum(0., 1. - Y * pred)
         if weight is None:
@@ -297,7 +296,7 @@ class Loss(object):
     
     @staticmethod
     def loss_squared_hinge(Y,pred,weight,**kwargs):
-        ''' The squared hinge loss
+        ''' The squared hinge loss. Input vector Y should have values 1 or -1
         '''
         margin = np.maximum(0., 1. - Y * pred)
         if weight is None:
