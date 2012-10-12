@@ -1,7 +1,6 @@
 ''' mpi implements common util functions based on mpi4py.
 '''
 
-import cPickle as pickle
 import glob
 import logging
 from mpi4py import MPI
@@ -142,7 +141,7 @@ def dump_matrix(mat, filename):
     """
     if SIZE == 1:
         with open(filename,'w') as fid:
-            pickle.dump(mat, fid)
+            np.save(mat, fid)
     else:
         mat_sizes = COMM.gather(mat.shape[0])
         if is_root():
@@ -161,7 +160,7 @@ def dump_matrix(mat, filename):
         barrier()
 
 def load_matrix(filename):
-    """Load a matrix from a single pickle, and distribute it to each node
+    """Load a matrix from a single matrix, and distribute it to each node
     numpy supports memmap so each node will simply load its own part
     """
     if SIZE == 1:
