@@ -521,6 +521,9 @@ class LLCEncoder(FeatureEncoder):
 class Pooler(Component):
     """Pooler is just an abstract class that holds all pooling subclasses
     """
+    def __init__(self, specs):
+        Component.__init__(self, specs)
+        
     def train(self, incoming_patches):
         raise RuntimeError,\
             "You should not call the train() function of a pooler."
@@ -606,6 +609,38 @@ class PyramidPooler(MetaPooler):
         super(PyramidPooler, self).__init__(basic_poolers, specs)
 
 
+class FixSizePooler(Pooler):
+    """FixSizePooler is similar to SpatialPooler, but instead of using a grid
+    that adapts to the image size, it uses a fixed receptive field to pool 
+    features from. If the input image size (minus the size) is not a multiple
+    of the stride, the boundaries are evenly removed from each side.
+    
+    specs:
+        size: an int, or a 2-tuple indicating the size of each pooled feature
+            receptive field.
+        stride: an int, or a 2-tuple indicating the stride of the pooled
+            receptive fields.
+            If stride is not set, it's set to size - meaning that no overlapping
+            is used.
+        method: 'max', 'ave' or 'rms'
+    """
+    def __init__(self, specs):
+        Pooler.__init__(self, specs)
+        size = self.specs['size']
+        if type(size) is int:
+            self.specs['size'] = (size, size)
+        stride = self.specs.get('stride', self.specs['size'])
+        if type(stride) is int:
+            self.specs['stride'] = (stride, stride)
+        # in the end, convert them to numpy arrays for easier indexing
+        self.specs['size'] = np.asarray(self.specs['size'], dtype = int)
+        self.specs['stride'] = np.asarray(self.specs['stride'], dtype = int)
+
+    def process(self, image):
+        image_size = image.shape[:2]
+        boundary = np.mod(image_size - self.specs['size'],
+                          self.specs['stride']) / 2
+        
 class WeightedPooler(Pooler):
     """WeightedPooler does weighted sum (or rms) of the incoming image
     """
