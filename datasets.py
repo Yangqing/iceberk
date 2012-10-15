@@ -157,7 +157,7 @@ class MirrorSet(ImageSet):
     def num_channels(self):
         """ Returns the number of channels
         """
-        return self._original._num_channels
+        return self._original.num_channels()
 
 
 class TwoLayerDataset(ImageSet):
