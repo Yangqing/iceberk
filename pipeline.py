@@ -65,6 +65,14 @@ class ConvLayer(list):
     It starts with a patch extractor, followed by several feature processing
     components, and ends with a spatial pooler.
     """
+    def __init__(self, *args, **kwargs):
+        """Initialize a convolutional layer.
+        Optional keyword parameters:
+            prev: the previous convolutional layer. Default None.
+        """
+        self._previous_layer = kwargs.pop('prev', None)
+        super(ConvLayer, self).__init__(*args, **kwargs)
+        
     def train(self, dataset, num_patches):
         """ train the convolutional layer
         
@@ -78,7 +86,7 @@ class ConvLayer(list):
             raise ValueError, \
                   "The first component should be a patch extractor!"
         logging.debug("Extracting random patches...")
-        patches = self[0].sample(dataset, num_patches)
+        patches = self[0].sample(dataset, num_patches, self._previous_layer)
         for component in self[1:]:
             mpi.barrier()
             logging.debug("Training %s..." % (component.__class__.__name__))
@@ -91,6 +99,8 @@ class ConvLayer(list):
         
     def process(self, image, as_vector = False):
         output = image
+        if self._previous_layer is not None:
+            output = self._previous_layer.process(image)
         for element in self:
             output = element.process(output)
         if as_vector:
@@ -126,24 +136,38 @@ class Extractor(Component):
     def train(self, incoming_patches):
         raise RuntimeError,\
             "You should not call the train() function of a extractor."
+    
+    def sample(self, dataset, num_patches, previous_layer = None):
+        """ randomly sample num_patches from the dataset. Pass previous_layer
+        if sampling should be performed on the output of a previously computed
+        layer.
+        
+        The returned patches would be a 2-dimensional ndarray of size
+            [num_patches, psize[0] * psize[1] * num_channels]
+        When we sample patches, we need to process all the images, which might
+        not be a very efficient way.
+        """
+        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
+        sampler = mathutil.ReservoirSampler()
+        for i in range(dataset.size()):
+            if previous_layer is not None:
+                feat = previous_layer.process(dataset.image(i))
+            else:
+                feat = dataset.image(i)
+            feat = self.process(feat)
+            feat = feat.reshape(np.prod(feat.shape[:2]),
+                                dataset.num_channels())
+            sampler.consider(feat)
+        return sampler.get()
+    
+    def process(self, image):
+        raise NotImplementedError
             
 class IdenticalExtractor(Extractor):
     """A dummy extractor that simply extracts the image itself
     """
     def __init__(self):
         pass
-    
-    def sample(self, dataset, num_patches):
-        """ randomly sample num_patches from the dataset
-        """
-        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        sampler = mathutil.ReservoirSampler()
-        for i in range(dataset.size()):
-            feat = dataset.image(i)
-            feat = feat.reshape(np.prod(feat.shape[:2]),
-                                dataset.num_channels())
-            sampler.consider(feat)
-        return sampler.get()
     
     def process(self, image):
         return np.atleast_3d(image.copy())
@@ -166,43 +190,45 @@ class PatchExtractor(Extractor):
         else:
             self.psize = psize
         self.stride = stride
-        
-    def sample(self, dataset, num_patches):
-        """ randomly sample num_patches from the dataset.
-        
-        The returned patches would be a 2-dimensional ndarray of size
-            [num_patches, psize[0] * psize[1] * num_channels]
-        """
-        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        imids = np.random.randint(dataset.size(), size=num_patches)
-        # sort the ids so we don't need to re-read images when sampling
-        imids.sort()
-        patches = np.empty((num_patches, 
-                            self.psize[0] * 
-                            self.psize[1] * 
-                            dataset.num_channels()))
-        current_im = -1
-        if dataset.dim() is not None:
-            # all images have the same dim, making random sampling easier
-            dim = dataset.dim()
-            rowids = np.random.randint(dim[0]-self.psize[0], size=num_patches)
-            colids = np.random.randint(dim[1]-self.psize[1], size=num_patches)
-            precomputed = True  
-        else:
-            precomputed = False
-        for i in range(num_patches):
-            if imids[i] != current_im:
-                im = dataset.image(imids[i])
-                current_im = imids[i]
-            if not precomputed:
-                rowid = np.random.randint(im.shape[0]-self.psize[0])
-                colid = np.random.randint(im.shape[1]-self.psize[1])
-            else:
-                rowid = rowids[i]
-                colid = colids[i]
-            patches[i] = im[rowid:rowid+self.psize[0], \
-                            colid:colid+self.psize[1]].flat
-        return patches
+    
+# The old sample function. We implemented a new sample function in Extractor
+# which is more general but probably less efficient.
+#    def sample(self, dataset, num_patches):
+#        """ randomly sample num_patches from the dataset.
+#        
+#        The returned patches would be a 2-dimensional ndarray of size
+#            [num_patches, psize[0] * psize[1] * num_channels]
+#        """
+#        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
+#        imids = np.random.randint(dataset.size(), size=num_patches)
+#        # sort the ids so we don't need to re-read images when sampling
+#        imids.sort()
+#        patches = np.empty((num_patches, 
+#                            self.psize[0] * 
+#                            self.psize[1] * 
+#                            dataset.num_channels()))
+#        current_im = -1
+#        if dataset.dim() is not None:
+#            # all images have the same dim, making random sampling easier
+#            dim = dataset.dim()
+#            rowids = np.random.randint(dim[0]-self.psize[0], size=num_patches)
+#            colids = np.random.randint(dim[1]-self.psize[1], size=num_patches)
+#            precomputed = True  
+#        else:
+#            precomputed = False
+#        for i in range(num_patches):
+#            if imids[i] != current_im:
+#                im = dataset.image(imids[i])
+#                current_im = imids[i]
+#            if not precomputed:
+#                rowid = np.random.randint(im.shape[0]-self.psize[0])
+#                colid = np.random.randint(im.shape[1]-self.psize[1])
+#            else:
+#                rowid = rowids[i]
+#                colid = colids[i]
+#            patches[i] = im[rowid:rowid+self.psize[0], \
+#                            colid:colid+self.psize[1]].flat
+#        return patches
         
     def process(self, image):
         '''process an image

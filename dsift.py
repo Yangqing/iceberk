@@ -74,15 +74,7 @@ class OrientedGradientExtractor(pipeline.Extractor):
             I_orient[:,:,i] = I_mag * np.maximum(
                     np.cos(I_theta - _ANGLES[i]) ** _ALPHA, 0)
         return I_orient
-
-    def sample(self, dataset, num_patches):
-        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        sampler = mathutil.ReservoirSampler(num_patches)
-        for i in range(dataset.size()):
-            feat = self.process(dataset.image(i))
-            feat.resize(np.prod(feat.shape[:2]), feat.shape[2])
-            sampler.consider(feat)
-        return sampler.get()
+    
     
 class DsiftExtractor(pipeline.Extractor):
     '''
@@ -129,24 +121,6 @@ class DsiftExtractor(pipeline.Extractor):
         # weights is the contribution of each pixel to the corresponding bin
         # center
         self.weights = weights_h * weights_w
-        #pyplot.imshow(self.weights)
-        #pyplot.show()
-        
-    def sample(self, dataset, num_patches):
-        """ randomly sample num_patches from the dataset.
-        
-        The returned patches would be a 2-dimensional ndarray of size
-            [num_patches, psize[0] * psize[1] * num_channels]
-        When we sample patches, we need to process all the images, which might
-        not be a very efficient way
-        """
-        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        sampler = mathutil.ReservoirSampler(num_patches)
-        for i in range(dataset.size()):
-            feat = self.process(dataset.image(i))
-            feat.resize(np.prod(feat.shape[:2]), feat.shape[2])
-            sampler.consider(feat)
-        return sampler.get()
         
     def process(self, image):
         '''
