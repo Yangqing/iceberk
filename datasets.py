@@ -114,7 +114,52 @@ class NdarraySet(ImageSet):
         else:
             self._channels = self._dim[-1]
 
+class MirrorSet(ImageSet):
+    def __init__(self, original_set):
+        """Create a mirrored dataset from the original data set.
+        """
+        super(MirrorSet, self).__init__()
+        self._original = original_set
+
+    def size(self):
+        """Return the size of the dataset hosted on the current node
+        """
+        return self._original.size() * 2
+
+    def image(self, idx):
+        """ Returns datum 
         
+        Note that you should almost never use data that is hosted on other
+        nodes - every node should deal with its data only.
+        """
+        if idx < self._original.size():
+            return self._original.image(idx)
+        else:
+            im = self._original.image(idx - self._original.size())
+            return np.ascontiguousarray(im[:, ::-1])
+
+    def label(self, idx):
+        """ Returns the label for the corresponding datum
+        """
+        return self._original.label(idx % self._original.size())
+
+    def labels(self):
+        """ Returns the label vector for all the data I am hosting
+        """
+        return np.hstack((self._original.labels, self._original.labels))
+    
+    def dim(self):
+        """Returns the dimension of the data if they have the same dimension
+        Otherwise, return False
+        """
+        return self._original.dim()
+    
+    def num_channels(self):
+        """ Returns the number of channels
+        """
+        return self._original.num_channels()
+
+
 class TwoLayerDataset(ImageSet):
     """Builds a dataset composed of two-layer storage structures similar to
     Caltech-101
