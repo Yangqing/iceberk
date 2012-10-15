@@ -1,4 +1,5 @@
 import numpy as np
+from jiayq_ice import mpi
 
 def gemm(alpha,A,B,dtype=None,**kwargs):
     '''A gemm function that uses scipy fblas functions, avoiding matrix copy
@@ -117,6 +118,11 @@ class ReservoirSampler(object):
                 # we have remaining features to consider
                 self.consider(feature[count:])
     
+    def num_considered(self):
+        """Return the number of considered samples
+        """
+        return self._current
+    
     def get(self):
         """After considering all samples, call get() to get the sampled
         features
@@ -126,3 +132,39 @@ class ReservoirSampler(object):
             return self._data[:self._current]
         else:
             return self._data
+
+def mpi_mean(data):
+    """An mpi implementation of the mean over different nodes.
+    """
+    s_local = data.sum(0)
+    m = np.empty_like(s_local)
+    mpi.COMM.Allreduce(s_local, m)
+    num_data = mpi.COMM.allreduce(data.shape[0])
+    m /= float(num_data)
+    return m
+
+def mpi_std(data):
+    """An mpi implementation of the std over different nodes.
+    """
+    m = mpi_mean(data)
+    data_centered = data - m
+    data_centered **= 2
+    std_local = data_centered.sum(0)
+    std = np.empty_like(std_local)
+    mpi.COMM.Allreduce(std_local, std)
+    num_data = mpi.COMM.allreduce(data.shape[0])
+    std /= float(num_data)
+    return std
+
+def mpi_cov(data):
+    """An mpi implementation of the covariance matrix over different nodes
+    """
+    m = mpi_mean(data)
+    data_centered = data - m
+    cov_local = dot(data_centered.T, data_centered)
+    covmat = np.empty_like(cov_local)
+    mpi.COMM.Allreduce(cov_local, covmat)
+    num_data = mpi.COMM.allreduce(data.shape[0])
+    covmat /= float(num_data)
+    return covmat
+
