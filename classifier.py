@@ -29,7 +29,7 @@ def to_one_of_k_coding(Y):
         raise ValueError, "The input Y should be a vector."
     K = mpi.COMM.allreduce(Y.max(), op=max) + 1
     Yout = -np.ones((len(Y), K))
-    Yout[np.arange(len(Y)), Y] = 1
+    Yout[np.arange(len(Y)), Y.astype(int)] = 1
     return Yout
 
 def feature_meanstd(mat):

@@ -146,7 +146,7 @@ class MirrorSet(ImageSet):
     def labels(self):
         """ Returns the label vector for all the data I am hosting
         """
-        return np.hstack((self._original.labels, self._original.labels))
+        return np.hstack((self._original.labels(), self._original.labels()))
     
     def dim(self):
         """Returns the dimension of the data if they have the same dimension

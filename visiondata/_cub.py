@@ -97,7 +97,7 @@ class CUBDataset(datasets.ImageSet):
         self._classnames = mpi.COMM.bcast(classnames)
 
     def _read(self, idx):
-        image = datasets.imread_RGB(self._data[idx])
+        image = datasets.imread_rgb(self._data[idx])
         self._raw_dimension[idx] = image.shape[:2]
         xmin, ymin, xmax, ymax = \
                     self._get_cropped_coordinates(idx)
