@@ -1,4 +1,4 @@
-from jiayq_ice import datasets, mpi, visiondata
+from iceberk import datasets, mpi, visiondata
 import numpy as np
 import os
 import unittest

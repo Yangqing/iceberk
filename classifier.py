@@ -12,7 +12,7 @@ solver, and if the loss function or regularizer is not differentiable everywhere
 (like the v-style L1 regularizer), we will use the subgradient methods.
 '''
 
-from jiayq_ice import mpi, mathutil
+from iceberk import mpi, mathutil
 import logging
 import numpy as np
 from scipy import optimize

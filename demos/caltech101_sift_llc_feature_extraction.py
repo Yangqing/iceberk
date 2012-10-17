@@ -1,5 +1,5 @@
 '''
-This script uses the jiayq_ice pipeline to perform a cifar classification demo
+This script uses the iceberk pipeline to perform a cifar classification demo
 using parameter settings idential to Adam Coates' AISTATS paper (except for the
 number of kmeans centers, which we set to 800 for speed considerations).
 
@@ -13,7 +13,7 @@ import cPickle as pickle
 import cProfile
 import gflags
 import logging
-from jiayq_ice import mpi, datasets, pipeline, classifier, dsift
+from iceberk import mpi, datasets, pipeline, classifier, dsift
 import numpy as np
 import os
 import sys

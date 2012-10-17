@@ -1,4 +1,4 @@
-from jiayq_ice import visualize, mpi
+from iceberk import visualize, mpi
 import numpy as np
 import unittest
 

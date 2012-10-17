@@ -1,7 +1,7 @@
 """Datasets implements some basic structures to deal with a dataset
 """
 import glob
-from jiayq_ice import mpi
+from iceberk import mpi
 import logging
 import numpy as np
 import os

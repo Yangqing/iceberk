@@ -6,7 +6,7 @@ contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
 import ctypes as ct
-from jiayq_ice import kmeans_mpi, mpi, omp_mpi, mathutil, mathutil
+from iceberk import kmeans_mpi, mpi, omp_mpi, mathutil, mathutil
 import logging
 import numpy as np
 import os

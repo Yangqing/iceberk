@@ -1,7 +1,7 @@
 """The Caltech-UCSD bird dataset
 """
 
-from jiayq_ice import datasets, mpi
+from iceberk import datasets, mpi
 import numpy as np
 import os
 from scipy import misc
@@ -171,7 +171,7 @@ class CUBDataset(datasets.ImageSet):
                 '192.Downy_Woodpecker']
 
 if __name__ == "__main__":
-    from jiayq_ice import classifier, pipeline, visualize, visiondata, mpi
+    from iceberk import classifier, pipeline, visualize, visiondata, mpi
     import numpy as np
     
     root = '/u/vis/farrell/datasets/CUB_200_2011'

@@ -13,7 +13,7 @@ The original copyright info is as follows.
 # License: BSD
 """
 
-from jiayq_ice import mpi
+from iceberk import mpi
 import numpy as np
 import logging
 from sklearn import metrics

@@ -1,4 +1,4 @@
-from jiayq_ice import kmeans_mpi, mpi
+from iceberk import kmeans_mpi, mpi
 import numpy as np
 import unittest
 

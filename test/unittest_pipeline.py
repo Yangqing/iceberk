@@ -1,4 +1,4 @@
-from jiayq_ice import pipeline, datasets, mpi
+from iceberk import pipeline, datasets, mpi
 import numpy as np
 import unittest
 

@@ -1,4 +1,4 @@
-from jiayq_ice import mathutil
+from iceberk import mathutil
 import numpy as np
 import unittest
 

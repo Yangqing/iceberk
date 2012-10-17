@@ -1,11 +1,11 @@
 import cPickle as pickle
-from jiayq_ice import mpi
+from iceberk import mpi
 import numpy as np
 import os
 import unittest
 
 _MPI_TEST_DIR = '/tmp/mpi_test_dir'
-_MPI_DUMP_TEST_FILE = '/tmp/jiayq_ice.test.unittest_mpi.dump.pickle'
+_MPI_DUMP_TEST_FILE = '/tmp/iceberk.test.unittest_mpi.dump.pickle'
 
 class TestMPI(unittest.TestCase):
     """Test the mpi module
