@@ -29,7 +29,7 @@ def to_one_of_k_coding(Y):
         raise ValueError, "The input Y should be a vector."
     K = mpi.COMM.allreduce(Y.max(), op=max) + 1
     Yout = -np.ones((len(Y), K))
-    Yout[np.arange(len(Y)), Y] = 1
+    Yout[np.arange(len(Y)), Y.astype(int)] = 1
     return Yout
 
 def feature_meanstd(mat):
@@ -421,11 +421,35 @@ class Evaluator(object):
         """Computes the accuracy
         Input: 
             Y, pred: two vectors containing discrete labels
+            If pred is a matrix instead of a vector, then argmax is used to get
+            the discrete label.
         """
+        if pred.ndim == 2:
+            pred = pred.argmax(axis=1)
         correct = mpi.COMM.allreduce((Y==pred).sum())
         num_data = mpi.COMM.allreduce(len(Y))
         return float(correct) / num_data
     
+    @staticmethod
+    def accuracy_class_averaged(Y, pred):
+        """Computes the accuracy, but averaged over classes instead of averaged
+        over data points.
+        Input:
+            Y: the ground truth vector
+            pred: a vector containing the predicted labels. If pred is a matrix
+            instead of a vector, then argmax is used to get the discrete label.
+        """
+        if pred.ndim == 2:
+            pred = pred.argmax(axis=1)
+        num_classes = Y.max() + 1
+        accuracy = 0.0
+        correct = (Y == pred).astype(np.float)
+        for i in range(num_classes):
+            idx = (Y == i)
+            accuracy += correct[idx].mean()
+        accuracy /= num_classes
+        return accuracy
+
     @staticmethod
     def top_k_accuracy(Y, pred, k):
         """Computes the top k accuracy

@@ -85,7 +85,6 @@ class ConvLayer(list):
         if not isinstance(self[0], Extractor):
             raise ValueError, \
                   "The first component should be a patch extractor!"
-        logging.debug("Extracting random patches...")
         patches = self[0].sample(dataset, num_patches, self._previous_layer)
         for component in self[1:]:
             mpi.barrier()
@@ -129,6 +128,16 @@ class ConvLayer(list):
             for i in range(1,dataset.size()):
                 data[i] = self.process(dataset.image(i), as_vector = as_2d)
         return data
+    
+    def sample(self, dataset, num_patches,
+               exhaustive = False, ratio_per_image = 0.1):
+        """Sample pooled features from the dataset. For example, if after
+        pooling, the output feature is 4*4*1000, then the sampled output is
+        num_patches * 1000.
+        """
+        extractor = IdenticalExtractor()
+        return extractor.sample(dataset, num_patches, self, 
+                                exhaustive, ratio_per_image)
 
 class Extractor(Component):
     """Extractor is just an abstract class that holds all extractor subclasses
@@ -137,7 +146,8 @@ class Extractor(Component):
         raise RuntimeError,\
             "You should not call the train() function of a extractor."
     
-    def sample(self, dataset, num_patches, previous_layer = None):
+    def sample(self, dataset, num_patches, previous_layer = None,
+               exhaustive = False, ratio_per_image = 0.1):
         """ randomly sample num_patches from the dataset. Pass previous_layer
         if sampling should be performed on the output of a previously computed
         layer.
@@ -146,18 +156,34 @@ class Extractor(Component):
             [num_patches, psize[0] * psize[1] * num_channels]
         When we sample patches, we need to process all the images, which might
         not be a very efficient way.
+        
+        In default, exhaustive is set False so that the sampling is carried out
+        in a lazy way - for each image we keep a subset of its features given
+        by ratio_per_image, and as soon as we hit the number of required patches
+        we stop sampling.
         """
+        logging.debug("Extracting %d patches..." % num_patches)
         num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-        sampler = mathutil.ReservoirSampler()
+        sampler = mathutil.ReservoirSampler(num_patches)
+        order = np.arange(dataset.size())
+        if exhaustive:
+            order = np.random.permutation(order)
         for i in range(dataset.size()):
             if previous_layer is not None:
                 feat = previous_layer.process(dataset.image(i))
             else:
                 feat = dataset.image(i)
             feat = self.process(feat)
-            feat = feat.reshape(np.prod(feat.shape[:2]),
-                                dataset.num_channels())
-            sampler.consider(feat)
+            feat.resize((np.prod(feat.shape[:2]),) + feat.shape[2:])
+            if exhaustive:
+                sampler.consider(feat)
+            else:
+                # randomly keep ratio_per_image
+                idx = np.random.permutation(np.arange(feat.shape[0]))
+                num_selected = max(int(feat.shape[0] * ratio_per_image), 1)
+                sampler.consider(feat[idx[:num_selected]])
+                if sampler.num_considered() > num_patches:
+                    break
         return sampler.get()
     
     def process(self, image):
@@ -547,6 +573,9 @@ class LLCEncoder(FeatureEncoder):
 class Pooler(Component):
     """Pooler is just an abstract class that holds all pooling subclasses
     """
+    def __init__(self, specs):
+        Component.__init__(self, specs)
+        
     def train(self, incoming_patches):
         raise RuntimeError,\
             "You should not call the train() function of a pooler."
@@ -618,20 +647,53 @@ class PyramidPooler(MetaPooler):
     specs:
         level: an int indicating the number of pyramid levels. For example, 3
             means performing 1x1, 2x2 and 4x4 pooling. Alternately, specify a
-            list of levels, e.g., [1,3] to specify 1x1 and 4x4 pooling.
+            list of levels, e.g., [0,2] to specify 1x1 (2^0) and 4x4 (2^2)
+            pooling.
         method: 'max', 'ave' or 'rms'.
     """
     def __init__(self, specs):
         basic_poolers = []
         level = specs['level']
         if type(level) is int:
-            level = range(1, level)
+            level = range(level)
         for i in level:
             basic_poolers.append(
                     SpatialPooler({'grid': 2**i, 'method': specs['method']}))
         super(PyramidPooler, self).__init__(basic_poolers, specs)
 
 
+class FixSizePooler(Pooler):
+    """FixSizePooler is similar to SpatialPooler, but instead of using a grid
+    that adapts to the image size, it uses a fixed receptive field to pool 
+    features from. If the input image size (minus the size) is not a multiple
+    of the stride, the boundaries are evenly removed from each side.
+    
+    specs:
+        size: an int, or a 2-tuple indicating the size of each pooled feature
+            receptive field.
+        stride: an int, or a 2-tuple indicating the stride of the pooled
+            receptive fields.
+            If stride is not set, it's set to size - meaning that no overlapping
+            is used.
+        method: 'max', 'ave' or 'rms'
+    """
+    def __init__(self, specs):
+        Pooler.__init__(self, specs)
+        size = self.specs['size']
+        if type(size) is int:
+            self.specs['size'] = (size, size)
+        stride = self.specs.get('stride', self.specs['size'])
+        if type(stride) is int:
+            self.specs['stride'] = (stride, stride)
+        # in the end, convert them to numpy arrays for easier indexing
+        self.specs['size'] = np.asarray(self.specs['size'], dtype = int)
+        self.specs['stride'] = np.asarray(self.specs['stride'], dtype = int)
+
+    def process(self, image):
+        image_size = image.shape[:2]
+        boundary = np.mod(image_size - self.specs['size'],
+                          self.specs['stride']) / 2
+        
 class WeightedPooler(Pooler):
     """WeightedPooler does weighted sum (or rms) of the incoming image
     """
