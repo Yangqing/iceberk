@@ -21,7 +21,6 @@ except ImportError:
     logging.warning('Cannot find bottleneck, using numpy as backup.')
     bn = None
 
-
 class Component(object):
     """ The common interface to process an input image
     
@@ -35,7 +34,6 @@ class Component(object):
             specs: a dictionary containing param keywords and values
         """
         self.specs = specs
-    
     
     def process(self, image):
         """ The interface that processes the input from the last component,
@@ -184,6 +182,9 @@ class Extractor(Component):
                 sampler.consider(feat[idx[:num_selected]])
                 if sampler.num_considered() > num_patches:
                     break
+        if sampler.num_considered() < num_patches:
+            logging.warning("Warning: the number of provided patches is " \
+                            "smaller than the number of samples needed.")
         return sampler.get()
     
     def process(self, image):
@@ -618,6 +619,12 @@ class SpatialPooler(Pooler):
                                           ct.POINTER(ct.c_double) # output
                                          ]
     
+    def set_grid(self, grid):
+        """ The function is provided in case one needs to change the grid of
+        the spatial pooler on the fly
+        """
+        self.specs['grid'] = grid
+    
     def process(self, image):
         if not (image.flags['C_CONTIGUOUS'] and image.dtype == np.float64):
             logging.warning("Warning: the image is not contiguous.")
@@ -662,8 +669,8 @@ class PyramidPooler(MetaPooler):
         super(PyramidPooler, self).__init__(basic_poolers, specs)
 
 
-class FixSizePooler(Pooler):
-    """FixSizePooler is similar to SpatialPooler, but instead of using a grid
+class FixedSizePooler(Pooler):
+    """FixedSizePooler is similar to SpatialPooler, but instead of using a grid
     that adapts to the image size, it uses a fixed receptive field to pool 
     features from. If the input image size (minus the size) is not a multiple
     of the stride, the boundaries are evenly removed from each side.
@@ -671,10 +678,6 @@ class FixSizePooler(Pooler):
     specs:
         size: an int, or a 2-tuple indicating the size of each pooled feature
             receptive field.
-        stride: an int, or a 2-tuple indicating the stride of the pooled
-            receptive fields.
-            If stride is not set, it's set to size - meaning that no overlapping
-            is used.
         method: 'max', 'ave' or 'rms'
     """
     def __init__(self, specs):
@@ -682,18 +685,25 @@ class FixSizePooler(Pooler):
         size = self.specs['size']
         if type(size) is int:
             self.specs['size'] = (size, size)
-        stride = self.specs.get('stride', self.specs['size'])
-        if type(stride) is int:
-            self.specs['stride'] = (stride, stride)
         # in the end, convert them to numpy arrays for easier indexing
         self.specs['size'] = np.asarray(self.specs['size'], dtype = int)
-        self.specs['stride'] = np.asarray(self.specs['stride'], dtype = int)
+        self._spatialpooler = SpatialPooler({'method': specs['method']})
 
     def process(self, image):
-        image_size = image.shape[:2]
-        boundary = np.mod(image_size - self.specs['size'],
-                          self.specs['stride']) / 2
-        
+        """process an image. If the input image size does not fit the pooling
+        region (multiples of grid), the boundary is cut as evenly as possible
+        around the border.
+        """
+        image_size = np.asarray(image.shape[:2])
+        grid = (image_size / self.specs['size']).astype(int)
+        pool_size = grid * self.specs['size']
+        offset = ((image_size - pool_size) / 2).astype(int)
+        # we use a spatial pooler to do the actual job
+        image = np.ascontiguousarray(image[offset[0]:offset[0]+pool_size[0],
+                                           offset[1]:offset[1]+pool_size[1]])
+        self._spatialpooler.set_grid(grid)
+        return self._spatialpooler.process(image)
+
 class WeightedPooler(Pooler):
     """WeightedPooler does weighted sum (or rms) of the incoming image
     """

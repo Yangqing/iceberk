@@ -141,7 +141,7 @@ def dump_matrix(mat, filename):
     """
     if SIZE == 1:
         with open(filename,'w') as fid:
-            np.save(mat, fid)
+            np.save(fid, mat)
     else:
         mat_sizes = COMM.gather(mat.shape[0])
         if is_root():
