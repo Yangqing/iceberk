@@ -5,7 +5,7 @@ import os
 import unittest
 
 _MPI_TEST_DIR = '/tmp/mpi_test_dir'
-_MPI_DUMP_TEST_FILE = '/tmp/iceberk.test.unittest_mpi.dump.pickle'
+_MPI_DUMP_TEST_FILE = '/tmp/iceberk.test.unittest_mpi.dump.npy'
 
 class TestMPI(unittest.TestCase):
     """Test the mpi module

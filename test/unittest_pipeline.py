@@ -2,7 +2,6 @@ from iceberk import pipeline, datasets, mpi
 import numpy as np
 import unittest
 
-
 class TestExtractor(unittest.TestCase):
     def setUp(self):
         self._sample_number = 1000
@@ -18,15 +17,22 @@ class TestExtractor(unittest.TestCase):
     
     def testSample(self):
         patches = self.extractor.sample(self.data, self._sample_number)
-        self.assertEqual(patches.shape[0], self._sample_number)
+        self.assertIn(mpi.COMM.allreduce(patches.shape[0]),
+                      range(self._sample_number - mpi.SIZE,
+                            self._sample_number + mpi.SIZE + 1))
         self.assertEqual(patches.shape[1], self._patchsize*self._patchsize*3)
         
         patches = self.extractor.sample(self.data_sc, self._sample_number)
-        self.assertEqual(patches.shape[0], self._sample_number)
+        self.assertIn(mpi.COMM.allreduce(patches.shape[0]),
+                      range(self._sample_number - mpi.SIZE,
+                            self._sample_number + mpi.SIZE + 1))
+
         self.assertEqual(patches.shape[1], self._patchsize*self._patchsize)
         
         patches = self.extractor.sample(self.data_mc, self._sample_number)
-        self.assertEqual(patches.shape[0], self._sample_number)
+        self.assertIn(mpi.COMM.allreduce(patches.shape[0]),
+                      range(self._sample_number - mpi.SIZE,
+                            self._sample_number + mpi.SIZE + 1))
         self.assertEqual(patches.shape[1], self._patchsize*self._patchsize*6)
 
     def testProcess(self):
