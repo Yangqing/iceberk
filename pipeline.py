@@ -73,7 +73,8 @@ class ConvLayer(list):
         self._previous_layer = kwargs.pop('prev', None)
         super(ConvLayer, self).__init__(*args, **kwargs)
         
-    def train(self, dataset, num_patches):
+    def train(self, dataset, num_patches,
+              exhaustive = False, ratio_per_image = 0.1):
         """ train the convolutional layer
         
         Note that we do not train the first element (patch extractor),
@@ -85,7 +86,8 @@ class ConvLayer(list):
         if not isinstance(self[0], Extractor):
             raise ValueError, \
                   "The first component should be a patch extractor!"
-        patches = self[0].sample(dataset, num_patches, self._previous_layer)
+        patches = self[0].sample(dataset, num_patches, self._previous_layer,
+                                 exhaustive, ratio_per_image)
         for component in self[1:]:
             mpi.barrier()
             logging.debug("Training %s..." % (component.__class__.__name__))
@@ -123,6 +125,7 @@ class ConvLayer(list):
         else:
             # we assume that each image leads to the same feature size
             temp = self.process(dataset.image(0), as_vector = as_2d)
+            logging.debug("Output feature shape: %s" % (str(temp.shape)))
             data = np.empty((dataset.size(),) + temp.shape)
             data[0] = temp
             for i in range(1,dataset.size()):
