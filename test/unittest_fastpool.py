@@ -2,7 +2,7 @@ import ctypes as ct
 import numpy as np
 import os
 import unittest
-import jiayq_ice as ice
+import iceberk as ice
 
 
 class TestFastpool(unittest.TestCase):

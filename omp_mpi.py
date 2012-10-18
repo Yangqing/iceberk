@@ -1,7 +1,7 @@
 """ orthogonal matching pursuit training and prediction code.
 """
 
-from jiayq_ice import mpi
+from iceberk import mpi
 import logging
 import numpy as np
 

@@ -10,7 +10,7 @@ Yangqing Jia, jiayq@eecs.berkeley.edu
 '''
 
 import numpy as np
-from jiayq_ice import pipeline, mpi, mathutil
+from iceberk import pipeline, mpi, mathutil
 import logging
 from scipy.ndimage import filters
 

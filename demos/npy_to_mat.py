@@ -5,7 +5,7 @@ Performs transformation from numpy npy format to mat format.
 '''
 
 import gflags
-from jiayq_ice import mpi
+from iceberk import mpi
 import numpy as np
 from scipy import io
 import sys

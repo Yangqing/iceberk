@@ -1,4 +1,4 @@
-from jiayq_ice import omp_mpi, mpi
+from iceberk import omp_mpi, mpi
 import math
 import numpy as np
 import unittest

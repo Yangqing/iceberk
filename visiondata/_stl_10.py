@@ -3,7 +3,7 @@
 
 import cPickle as pickle
 import h5py
-from jiayq_ice import datasets, mpi
+from iceberk import datasets, mpi
 import numpy as np
 import os
 from scipy import io
@@ -66,7 +66,7 @@ class STL10Dataset(datasets.ImageSet):
         return mpi.distribute(X), mpi.distribute(Y)
 
 def demo_read(root):
-    from jiayq_ice import visualize
+    from iceberk import visualize
     vis = visualize.PatchVisualizer()
     print 'Loading training data...'
     traindata = STL10Dataset(root, 'train')

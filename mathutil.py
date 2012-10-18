@@ -1,5 +1,5 @@
 import numpy as np
-from jiayq_ice import mpi
+from iceberk import mpi
 
 def gemm(alpha,A,B,dtype=None,**kwargs):
     '''A gemm function that uses scipy fblas functions, avoiding matrix copy

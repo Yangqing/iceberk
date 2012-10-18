@@ -6,7 +6,7 @@ import cPickle as pickle
 import cProfile
 import gflags
 import logging
-from jiayq_ice import mpi, datasets, pipeline, classifier, dsift
+from iceberk import mpi, datasets, pipeline, classifier, dsift
 import numpy as np
 import os
 import sys

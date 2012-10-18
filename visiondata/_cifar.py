@@ -2,7 +2,7 @@
 '''
 
 import cPickle as pickle
-from jiayq_ice import datasets, mpi
+from iceberk import datasets, mpi
 import numpy as np
 import os
 

@@ -22,4 +22,4 @@ External dependencies
       \-metrics
 """
 
-from jiayq_ice import pipeline, datasets, visualize
+from iceberk import pipeline, datasets, visualize

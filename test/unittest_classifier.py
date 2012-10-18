@@ -1,4 +1,4 @@
-from jiayq_ice import classifier
+from iceberk import classifier
 import numpy as np
 import unittest
 
