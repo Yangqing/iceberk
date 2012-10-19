@@ -1,11 +1,4 @@
 '''
-This script uses the iceberk pipeline to perform a cifar classification demo
-using parameter settings idential to Adam Coates' AISTATS paper (except for the
-number of kmeans centers, which we set to 800 for speed considerations).
-
-You need to specify "--root=/path/to/cifar-data" to run the code. For other
-optional flags, run the script with --help or --helpshort.
-
 @author: jiayq
 '''
 
@@ -34,19 +27,16 @@ gflags.DEFINE_integer("sift_size", 16,
                       "The sift patch size")
 gflags.DEFINE_integer("sift_stride", 6,
                       "The dense sift stride")
-gflags.DEFINE_integer("dict_size", 1024,
+gflags.DEFINE_integer("dict_size", 2048,
                       "The LLC dictionary size")
 gflags.DEFINE_integer("llc_k", 5,
                        "The LLC number of neighbors")
-gflags.DEFINE_integer("num_tries", 10,
-                      "The number of random train/test split tries")
-gflags.DEFINE_float("gamma", 0.01,
-                     "The SVM regularization term")
 FLAGS = gflags.FLAGS
 
 def compute_caltech_features():
     caltech = datasets.TwoLayerDataset(FLAGS.root,
-                                       ['jpg'])
+                                       ['jpg'],
+                                       max_size = 300)
     conv = pipeline.ConvLayer([
             dsift.DsiftExtractor(FLAGS.sift_size, FLAGS.sift_stride),
             pipeline.LLCEncoder({'k': FLAGS.llc_k},
