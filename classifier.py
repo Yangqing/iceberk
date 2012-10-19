@@ -343,10 +343,7 @@ class Loss(object):
             g = (diff > 0).astype(np.float64)
             g[np.arange(N), Y] = 1. - g.sum(axis=1)
         else:
-            f = np.dot(weight, diff_hinge).sum()
-            g = (diff > 0).astype(np.float64)
-            g[np.arange(N), Y] = 1. - g.sum(axis=1)
-            g *= weight[:, np.newaxis]
+            raise NotImplementedError
         return f, g
     
     @staticmethod
