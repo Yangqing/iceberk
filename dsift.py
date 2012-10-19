@@ -20,7 +20,7 @@ _NUM_ANGLES = 8
 _NUM_BINS = 4
 _NUM_SAMPLES = _NUM_BINS**2
 _ALPHA = 9.0
-_ANGLES = np.array(range(_NUM_ANGLES))*2.0*np.pi/_NUM_ANGLES
+_TWOSIDE = True
 
 def gen_dgauss(sigma,fwid=None):
     '''generating a derivative of Gauss filter on both the X and Y
@@ -52,10 +52,23 @@ class OrientedGradientExtractor(pipeline.Extractor):
         specs:
             sigma_edge: the standard deviation for the gaussian smoothing
                 before computing the gradient
+            num_angles: the number of angles to use, default 8 (as in sift)
+            alpha: the parameters used to compute the oriented gradient from
+                x and y gradients. Default 9.0
+            twoside: if true, compute the gradient evenly between 0 to 360
+                degrees. if false, compute between 0 to 180 degrees (take the
+                absolute value of the other side). Default true.
         """
-        self.sigma = specs.get('sigma_edge', 1.0)
-        self.GH, self.GW = gen_dgauss(self.sigma)
-        
+        self.specs = specs
+        self._GH, self._GW = gen_dgauss(specs.get('sigma_edge', 1.0))
+        num_angles = self.specs.get('num_angles', _NUM_ANGLES)
+        if specs.get('twoside', True):
+            self._ANGLES = np.array(range(num_angles)) \
+                    * 2.0 * np.pi / num_angles
+        else:
+            self._ANGLES = np.array(range(num_angles)) \
+                    * np.pi / num_angles
+
     def process(self, image):
         image = image.astype(np.double)
         if image.max() > 1:
@@ -65,14 +78,22 @@ class OrientedGradientExtractor(pipeline.Extractor):
             # we do not deal with color images.
             image = np.mean(image,axis=2)
         H,W = image.shape
-        IH = filters.convolve(image, self.GH, mode='nearest')
-        IW = filters.convolve(image, self.GW, mode='nearest')
+        IH = filters.convolve(image, self._GH, mode='nearest')
+        IW = filters.convolve(image, self._GW, mode='nearest')
         I_mag = np.sqrt(IH ** 2 + IW ** 2)
         I_theta = np.arctan2(IH, IW)
-        I_orient = np.empty((H, W, _NUM_ANGLES))
-        for i in range(_NUM_ANGLES):
-            I_orient[:,:,i] = I_mag * np.maximum(
-                    np.cos(I_theta - _ANGLES[i]) ** _ALPHA, 0)
+        
+        alpha = self.specs.get('alpha', _ALPHA)
+        num_angles = self.specs.get('num_angles', _NUM_ANGLES)
+        I_orient = np.empty((H, W, num_angles))
+        if self.specs.get('twoside', True):
+            for i in range(num_angles):
+                I_orient[:,:,i] = I_mag * np.maximum(
+                        np.cos(I_theta - self._ANGLES[i]) ** alpha, 0)
+        else:
+            for i in range(num_angles):
+                I_orient[:,:,i] = I_mag * np.abs(
+                        np.cos(I_theta - self._ANGLES[i]) ** alpha)
         return I_orient
     
     

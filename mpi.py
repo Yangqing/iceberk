@@ -3,15 +3,26 @@
 
 import glob
 import logging
-from mpi4py import MPI
 import numpy as np
 import os
 import random
 import socket
+import sys
 import time
 
 # MPI
-COMM = MPI.COMM_WORLD
+try:
+    from mpi4py import MPI
+    COMM = MPI.COMM_WORLD
+except Exception, e:
+    sys.stderr.write(\
+            "Warning: I cannot import mpi4py. Using a dummpy single noded "\
+            "implementation instead. The program will run in single node mode "\
+            "even if you executed me with mpirun or mpiexec.\n")
+    sys.stderr.write("We STRONGLY recommend you to try to install mpi and "\
+                     "mpi4py.\n")
+    from _mpi_dummy import COMM
+
 RANK = COMM.Get_rank()
 SIZE = COMM.Get_size()
 _HOST_RAW = socket.gethostname()
