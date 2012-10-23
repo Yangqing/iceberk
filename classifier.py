@@ -453,7 +453,7 @@ class Evaluator(object):
         """
         if pred.ndim == 2:
             pred = pred.argmax(axis=1)
-        num_class = Y.max() + 1
+        num_classes = Y.max() + 1
         table = np.zeros((num_classes, num_classes))
         for y, p in zip(Y, pred):
             table[y,p] += 1
