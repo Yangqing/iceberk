@@ -65,23 +65,27 @@ def dot_image(image, B):
     output = gemm(1.0, image.reshape((np.prod(imshape[:-1]), imshape[-1])), B)
     return output.reshape(imshape[:-1] + (B.shape[1],))
 
-def exp(X):
+def exp(X, out = None):
     """ A (hacky) safe exp that avoids overflowing
     """
-    result = np.clip(X, -np.inf, 100)
+    if out is None:
+        out = np.empty_like(X)
+    np.clip(X, -np.inf, 100, out = out)
     # we do in-place exp
-    np.exp(result, out = result)
-    return result
+    np.exp(out, out = out)
+    return out
 
-def log(X):
+def log(X, out = None):
     """ A (hacky) safe log that avoids nans
     
     Note that if there are negative values in the input, this function does not
     throw an error. Handle these cases with care.
     """
-    result = np.clip(X, np.finfo(np.float64).eps, np.inf)
-    np.log(result, out = result)
-    return result
+    if out is None:
+        out = np.empty_like(X)
+    np.clip(X, np.finfo(np.float64).eps, np.inf, out = out)
+    np.log(out, out = out)
+    return out
 
 class ReservoirSampler(object):
     """reservoir_sampler implements the reservoir sampling method based on numpy

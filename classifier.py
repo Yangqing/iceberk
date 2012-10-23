@@ -21,14 +21,14 @@ from sklearn import metrics
 
 _FMIN = optimize.fmin_l_bfgs_b
 
-def to_one_of_k_coding(Y):
-    '''Convert the vector Y into one-of-K coding. The element will be either -1
-    or 1
+def to_one_of_k_coding(Y, fill = -1):
+    '''Convert the vector Y into one-of-K coding. The element will be either
+    fill (-1 in default) or 1
     '''
     if Y.ndim > 1:
         raise ValueError, "The input Y should be a vector."
     K = mpi.COMM.allreduce(Y.max(), op=max) + 1
-    Yout = -np.ones((len(Y), K))
+    Yout = np.ones((len(Y), K)) * fill
     Yout[np.arange(len(Y)), Y.astype(int)] = 1
     return Yout
 
@@ -317,6 +317,21 @@ class Loss(object):
         else:
             return np.dot(weight, np.log(expnyp_plus)).sum(), \
                    - Y * weight * expnyp / expnyp_plus
+
+    @staticmethod
+    def loss_multiclass_logistic(Y, pred, weight, **kwargs):
+        """The multiple class logistic regression loss function
+        
+        The input Y should be a 0-1 matrix 
+        """
+        # normalized prediction and avoid overflowing
+        prob = pred - pred.max(axis=1)[:,np.newaxis]
+        mathutil.exp(prob, out=prob)
+        prob /= prob.sum(axis=1)[:, np.newaxis]
+        # take the log
+        logprob = mathutil.log(prob)
+        return np.dot(logprob.flat, Y.flat), prob - Y
+
 
     @staticmethod
     def loss_rank_hinge(Y, pred, weight, **kwargs):
