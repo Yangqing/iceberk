@@ -68,10 +68,20 @@ def dot_image(image, B):
 def exp(X):
     """ A (hacky) safe exp that avoids overflowing
     """
-    X = np.maximum(X,100)
-    return np.exp(X)
+    result = np.clip(X, -np.inf, 100)
+    # we do in-place exp
+    np.exp(result, out = result)
+    return result
 
-
+def log(X):
+    """ A (hacky) safe log that avoids nans
+    
+    Note that if there are negative values in the input, this function does not
+    throw an error. Handle these cases with care.
+    """
+    result = np.clip(X, np.finfo(np.float64).eps, np.inf)
+    np.log(result, out = result)
+    return result
 
 class ReservoirSampler(object):
     """reservoir_sampler implements the reservoir sampling method based on numpy
