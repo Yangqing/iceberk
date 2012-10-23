@@ -330,7 +330,7 @@ class Loss(object):
         prob /= prob.sum(axis=1)[:, np.newaxis]
         # take the log
         logprob = mathutil.log(prob)
-        return np.dot(logprob.flat, Y.flat), prob - Y
+        return - np.dot(logprob.flat, Y.flat), prob - Y
 
 
     @staticmethod
@@ -441,6 +441,23 @@ class Evaluator(object):
         correct = mpi.COMM.allreduce((Y==pred).sum())
         num_data = mpi.COMM.allreduce(len(Y))
         return float(correct) / num_data
+    
+    @staticmethod
+    def confusion_table(Y, pred):
+        """Computes the confusion table
+        Input:
+            Y, pred: two vectors containing discrete labels
+        Output:
+            table: the confusion table. table[i,j] is the number of data points
+                that belong to i but predicted as j
+        """
+        if pred.ndim == 2:
+            pred = pred.argmax(axis=1)
+        num_class = Y.max() + 1
+        table = np.zeros((num_classes, num_classes))
+        for y, p in zip(Y, pred):
+            table[y,p] += 1
+        return table
     
     @staticmethod
     def accuracy_class_averaged(Y, pred):
