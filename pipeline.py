@@ -609,8 +609,11 @@ class SpatialPooler(Pooler):
     """
     _METHODS = {'max':0, 'ave': 1, 'rms': 2}
     # fast pooling C library
-    _FASTPOOL = np.ctypeslib.load_library('libfastpool.so',
-                                          os.path.dirname(__file__))
+    try:
+        _FASTPOOL = np.ctypeslib.load_library('libfastpool.so',
+                                              os.path.dirname(__file__))
+    except Exception, e:
+        raise RuntimeError, "I cannot load libfastpool.so. please run make."
     _FASTPOOL.fastpooling.restype = ct.c_int
     _FASTPOOL.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
                                           ct.c_int, # height
