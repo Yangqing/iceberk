@@ -703,9 +703,62 @@ class FixedSizePooler(Pooler):
         offset = ((image_size - pool_size) / 2).astype(int)
         # we use a spatial pooler to do the actual job
         image = np.ascontiguousarray(image[offset[0]:offset[0]+pool_size[0],
-                                           offset[1]:offset[1]+pool_size[1]])
+                                           offset[1]:offset[1]+pool_size[1]],
+                                     dtype = np.float64)
         self._spatialpooler.set_grid(grid)
         return self._spatialpooler.process(image)
+
+class KernelPooler(Pooler):
+    """KernelPooler is similar to SpatialPooler but uses a kernel to weight
+    different locations
+    
+    specs:
+        kernel: a 2D numpy array, non-negative
+        stride: the stride with which this kernel should be carried out
+        method: 'ave' or 'rms'
+    """
+    def __init__(self, specs):
+        Pooler.__init__(self, specs)
+        # normalize the kernel
+        kernel = self.specs['kernel']
+        np.clip(kernel, 0, np.inf, out=kernel)
+        s = kernel.sum()
+        if s <= 0:
+            raise ValueError, "The kernel does not seem to be right"
+        kernel /= s
+        stride = self.specs['stride']
+        if type(stride) is int:
+            self.specs['stride'] = (stride, stride)
+        self.specs['stride'] = np.asarray(self.specs['stride'], dtype=int)
+        method = self.specs['method']
+        if method != 'ave' and method != 'rms':
+            raise ValueError, "Unrecognized method: %s" % method
+    
+    def process(self, image):
+        image_size = np.asarray(image.shape[:2])
+        kernel = self.specs['kernel']
+        kernel_size = np.asarray(kernel.shape, dtype=int)
+        stride = self.specs['stride']
+        grid = ((image_size - kernel_size) / stride).astype(int)
+        pool_size = grid * stride + kernel_size
+        offset = ((image_size - pool_size) / 2).astype(int)
+        output = np.zeros((grid[0], grid[1], image.shape[2]))
+        cache = np.zeros((kernel_size[0], kernel_size[1], image.shape[2]))
+        cache_2d = cache.view()
+        cache_2d.shape = (kernel_size[0] * kernel_size[1], image.shape[2])
+        if self.specs['method'] == 'rms':
+            image = image.astype(np.float64) ** 2
+        for i in range(grid[0]):
+            for j in range(grid[1]):
+                topleft = offset + stride * (i,j)
+                bottomright = topleft + kernel_size
+                cache[:] = image[topleft[0]:bottomright[0], 
+                                 topleft[1]:bottomright[1]]
+                output[i,j] = np.dot(kernel.flat, cache_2d)
+        if self.specs['method'] == 'rms':
+            np.sqrt(output, out=output)
+        return output
+
 
 class WeightedPooler(Pooler):
     """WeightedPooler does weighted sum (or rms) of the incoming image
