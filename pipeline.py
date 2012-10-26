@@ -6,7 +6,8 @@ contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
 import ctypes as ct
-from iceberk import kmeans_mpi, mpi, omp_mpi, mathutil, mathutil
+from iceberk import kmeans_mpi, mpi, omp_mpi, mathutil
+from iceberk import cpputil
 import logging
 import numpy as np
 import os
@@ -519,6 +520,16 @@ class ThresholdEncoder(FeatureEncoder):
         np.clip(output, 0., np.inf, out=output)
         return output
 
+
+class ReLUEncoder(ThresholdEncoder):
+    """ ReLUEncoder is simply the threshold encoder with the alpha term set to
+    zero.
+    """
+    def __init__(self, *args, **kwargs):
+        super(ReLUEncoder, self).__init__(*args, **kwargs)
+        self.specs['alpha'] = 0.
+
+
 class TriangleEncoder(FeatureEncoder):
     """ Does triangle encoding as described in Coates and Ng's AISTATS paper
     """
@@ -609,22 +620,6 @@ class SpatialPooler(Pooler):
         method: 'max', 'ave' or 'rms'.
     """
     _METHODS = {'max':0, 'ave': 1, 'rms': 2}
-    # fast pooling C library
-    try:
-        _FASTPOOL = np.ctypeslib.load_library('libfastpool.so',
-                                              os.path.dirname(__file__))
-    except Exception, e:
-        raise RuntimeError, "I cannot load libfastpool.so. please run make."
-    _FASTPOOL.fastpooling.restype = ct.c_int
-    _FASTPOOL.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
-                                          ct.c_int, # height
-                                          ct.c_int, # width
-                                          ct.c_int, # num_channels
-                                          ct.c_int, # grid[0]
-                                          ct.c_int, # grid[1]
-                                          ct.c_int, # method
-                                          ct.POINTER(ct.c_double) # output
-                                         ]
     
     def set_grid(self, grid):
         """ The function is provided in case one needs to change the grid of
@@ -641,7 +636,7 @@ class SpatialPooler(Pooler):
         if type(grid) is int:
             grid = (grid, grid)
         output = np.empty((grid[0], grid[1], image.shape[-1]))
-        SpatialPooler._FASTPOOL.fastpooling(\
+        cpputil.fastpooling(\
                 image.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(image.shape[0]),
                 ct.c_int(image.shape[1]),

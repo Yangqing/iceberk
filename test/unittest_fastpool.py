@@ -4,29 +4,17 @@ import os
 import unittest
 import iceberk as ice
 
+from iceberk import cpputil
 
 class TestFastpool(unittest.TestCase):
     """Test the mpi module
     """
     def setUp(self):
         self.methods = {'max':0, 'ave': 1, 'rms': 2}
-        # fast pooling C library
-        self.fp = np.ctypeslib.load_library('libfastpool.so',
-                                            os.path.dirname(ice.__file__))
-        self.fp.fastpooling.restype = ct.c_int
-        self.fp.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
-                                        ct.c_int, # height
-                                        ct.c_int, # width
-                                        ct.c_int, # num_channels
-                                        ct.c_int, # grid[0]
-                                        ct.c_int, # grid[1]
-                                        ct.c_int, # method
-                                        ct.POINTER(ct.c_double) # output
-                                       ]
     
     def wrapper(self, image, grid, method):
         output = np.empty((grid[0], grid[1], image.shape[-1]))
-        self.fp.fastpooling(
+        cpputil.fastpooling(
                 image.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(image.shape[0]),
                 ct.c_int(image.shape[1]),
