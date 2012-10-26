@@ -109,7 +109,8 @@ class Solver(object):
     
     def presolve(self, X, Y, weight, param_init):
         """This function is called before we call lbfgs. It should return a
-        vector that is the initialization of the lbfgs.
+        vector that is the initialization of the lbfgs, and does any preparation
+        (such as creating caches) for the optimization.
         """
         raise NotImplementedError
     
@@ -147,9 +148,12 @@ class SolverSC(Solver):
         self._dim = self._X.shape[1]
         if param_init is None:
             param_init = np.zeros(self._dim+1)
-        else:
-            # just to make sure every node is on the same page
-            mpi.COMM.Bcast(param_init)
+        elif len(param_init) == 2:
+            # the initialization is w and b
+            param_init = np.hstack((param_init[0].flatten(), 
+                                    param_init[1].flatten()))
+        # just to make sure every node is on the same page
+        mpi.COMM.Bcast(param_init)
         return param_init
     
     def postsolve(self, lbfgs_result):
@@ -209,9 +213,12 @@ class SolverMC(Solver):
         self._dim = self._X.shape[1]
         if param_init is None:
             param_init = np.zeros(self._K * (self._dim+1))
-        else:
-            # just to make sure every node is on the same page
-            mpi.COMM.Bcast(param_init)
+        elif len(param_init) == 2:
+            # the initialization is w and b
+            param_init = np.hstack((param_init[0].flatten(), 
+                                    param_init[1].flatten()))
+        # just to make sure every node is on the same page
+        mpi.COMM.Bcast(param_init)
         return param_init
     
     def postsolve(self, lbfgs_result):
@@ -328,9 +335,10 @@ class Loss(object):
         prob = pred - pred.max(axis=1)[:,np.newaxis]
         mathutil.exp(prob, out=prob)
         prob /= prob.sum(axis=1)[:, np.newaxis]
+        g = prob - Y
         # take the log
-        logprob = mathutil.log(prob)
-        return - np.dot(logprob.flat, Y.flat), prob - Y
+        mathutil.log(prob, out=prob)
+        return -np.dot(prob.flat, Y.flat), g
 
 
     @staticmethod
@@ -491,7 +499,7 @@ class Evaluator(object):
         if k > pred.shape[1]:
             logging.warning("Warning: k is larger than the number of classes"
                             "so the accuracy would always be one.")
-        top_k_id = np.argsort(pred, axis=1)[-k:]
+        top_k_id = np.argsort(pred, axis=1)[:, -k:]
         match = (top_k_id == Y[:, np.newaxis])
         correct = mpi.COMM.allreduce(match.sum())
         num_data = mpi.COMM.allreduce(len(Y))
