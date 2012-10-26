@@ -21,19 +21,18 @@ def jitter(img, translation, rotation, scaling):
     rotation_matrix = np.asarray([[ np.cos(rotation), -np.sin(rotation)],
                                   [ np.sin(rotation), np.cos(rotation)]])
     new_coor = np.dot(old_coor, rotation_matrix)
-    new_coor += translation
-    new_coor *= 2. ** scaling
+    new_coor -= translation
+    new_coor *= 2. ** (- scaling)
+    new_coor += center
     img_jittered = np.empty_like(img)
     # we use linear interpolation to create the image for better quality, and
     # use the nearest values for pixels outside the image
     for i in range(img.shape[2]):
-        values = img[:,:,i].flatten()
-        out = interpolate.griddata(new_coor, values, old_coor);
-        out_near = interpolate.griddata(new_coor, values, old_coor,
-                                        method='nearest')
-        to_fill = np.isnan(out)
-        out[to_fill] = out_near[to_fill]
-        img_jittered[:,:,i] = out.reshape(img_size)
+        model = interpolate.RectBivariateSpline(np.arange(img_size[0]),
+                                                np.arange(img_size[1]),
+                                                img[:,:,i])
+        out = model.ev(new_coor[:,0], new_coor[:,1])
+        img_jittered[:,:,i] = out.reshape(img_size[1],img_size[0]).T
     # finally, if it's a single channel image, we will just return a single
     # channel image
     if img_jittered.shape[2] == 1:
