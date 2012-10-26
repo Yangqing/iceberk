@@ -619,7 +619,6 @@ class SpatialPooler(Pooler):
         grid: an int or a tuple indicating the pooling grid.
         method: 'max', 'ave' or 'rms'.
     """
-    _METHODS = {'max':0, 'ave': 1, 'rms': 2}
     
     def set_grid(self, grid):
         """ The function is provided in case one needs to change the grid of
@@ -635,16 +634,7 @@ class SpatialPooler(Pooler):
         grid = self.specs['grid']
         if type(grid) is int:
             grid = (grid, grid)
-        output = np.empty((grid[0], grid[1], image.shape[-1]))
-        cpputil.fastpooling(\
-                image.ctypes.data_as(ct.POINTER(ct.c_double)),
-                ct.c_int(image.shape[0]),
-                ct.c_int(image.shape[1]),
-                ct.c_int(image.shape[2]),
-                ct.c_int(grid[0]),
-                ct.c_int(grid[1]),
-                ct.c_int(SpatialPooler._METHODS[self.specs['method']]),
-                output.ctypes.data_as(ct.POINTER(ct.c_double)))
+        output = cpputil.fastpooling(image, grid, self.specs['method'])
         return output
 
 class PyramidPooler(MetaPooler):

@@ -9,21 +9,6 @@ from iceberk import cpputil
 class TestFastpool(unittest.TestCase):
     """Test the mpi module
     """
-    def setUp(self):
-        self.methods = {'max':0, 'ave': 1, 'rms': 2}
-    
-    def wrapper(self, image, grid, method):
-        output = np.empty((grid[0], grid[1], image.shape[-1]))
-        cpputil.fastpooling(
-                image.ctypes.data_as(ct.POINTER(ct.c_double)),
-                ct.c_int(image.shape[0]),
-                ct.c_int(image.shape[1]),
-                ct.c_int(image.shape[2]),
-                ct.c_int(grid[0]),
-                ct.c_int(grid[1]),
-                ct.c_int(method),
-                output.ctypes.data_as(ct.POINTER(ct.c_double)))
-        return output.flatten(), output.shape
     
     def testPoolingSingle(self):
         data = np.random.rand(10,10,3)
@@ -32,11 +17,11 @@ class TestFastpool(unittest.TestCase):
         pooled_ave = data_2d.mean(axis=0)
         pooled_rms = np.sqrt((data_2d**2).mean(axis=0))
         np.testing.assert_almost_equal(pooled_max,
-                self.wrapper(data, (1,1), self.methods['max'])[0])
+                cpputil.fastpooling(data, (1,1), 'max').flatten())
         np.testing.assert_almost_equal(pooled_ave,
-                self.wrapper(data, (1,1), self.methods['ave'])[0])
+                cpputil.fastpooling(data, (1,1), 'ave').flatten())
         np.testing.assert_almost_equal(pooled_rms,
-                self.wrapper(data, (1,1), self.methods['rms'])[0])
+                cpputil.fastpooling(data, (1,1), 'rms').flatten())
         
     def testPoolingMultiple(self):
         height = 10
@@ -62,11 +47,11 @@ class TestFastpool(unittest.TestCase):
                      for i in range(num_pool)])
             pooled_rms = np.sqrt(pooled_rms)
             np.testing.assert_almost_equal(pooled_max,
-                    self.wrapper(data, grid, self.methods['max'])[0])
+                    cpputil.fastpooling(data, grid, 'max').flatten())
             np.testing.assert_almost_equal(pooled_ave,
-                    self.wrapper(data, grid, self.methods['ave'])[0])
+                    cpputil.fastpooling(data, grid, 'ave').flatten())
             np.testing.assert_almost_equal(pooled_rms,
-                    self.wrapper(data, grid, self.methods['rms'])[0])
+                    cpputil.fastpooling(data, grid, 'rms').flatten())
 
     def testPoolingShapes(self):
         heights = [16, 31, 32, 33, 37, 40]
@@ -78,7 +63,7 @@ class TestFastpool(unittest.TestCase):
                 for channel in channels:
                     data = np.random.rand(height, width, channel)
                     for grid in grids:
-                        shape = self.wrapper(data, grid, self.methods['max'])[1]
+                        shape = cpputil.fastpooling(data, grid, 'max').shape
                         self.assertEqual(shape, grid + (channel,))
 
 if __name__ == '__main__':
