@@ -167,7 +167,7 @@ class Extractor(Component):
         num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
         sampler = mathutil.ReservoirSampler(num_patches)
         order = np.arange(dataset.size())
-        if exhaustive:
+        if not exhaustive:
             order = np.random.permutation(order)
         for i in range(dataset.size()):
             if previous_layer is not None:
@@ -183,6 +183,7 @@ class Extractor(Component):
                 idx = np.random.permutation(np.arange(feat.shape[0]))
                 num_selected = max(int(feat.shape[0] * ratio_per_image), 1)
                 sampler.consider(feat[idx[:num_selected]])
+                # as soon as we hit the number of patches needed, quit
                 if sampler.num_considered() > num_patches:
                     break
         if sampler.num_considered() < num_patches:
@@ -718,7 +719,8 @@ class KernelPooler(Pooler):
     specs:
         kernel: a 2D numpy array, non-negative
         stride: the stride with which this kernel should be carried out
-        method: 'ave' or 'rms'
+        method: 'ave' or 'rms'. You can also use 'max' which finds the max value
+            after the weighting, but I feel that it's not very well-defined.
     """
     def __init__(self, specs):
         Pooler.__init__(self, specs)
@@ -734,8 +736,6 @@ class KernelPooler(Pooler):
             self.specs['stride'] = (stride, stride)
         self.specs['stride'] = np.asarray(self.specs['stride'], dtype=int)
         method = self.specs['method']
-        if method != 'ave' and method != 'rms':
-            raise ValueError, "Unrecognized method: %s" % method
     
     def process(self, image):
         image_size = np.asarray(image.shape[:2])
@@ -749,18 +749,46 @@ class KernelPooler(Pooler):
         cache = np.zeros((kernel_size[0], kernel_size[1], image.shape[2]))
         cache_2d = cache.view()
         cache_2d.shape = (kernel_size[0] * kernel_size[1], image.shape[2])
-        if self.specs['method'] == 'rms':
-            image = image.astype(np.float64) ** 2
-        for i in range(grid[0]):
-            for j in range(grid[1]):
-                topleft = offset + stride * (i,j)
-                bottomright = topleft + kernel_size
-                cache[:] = image[topleft[0]:bottomright[0], 
-                                 topleft[1]:bottomright[1]]
-                output[i,j] = np.dot(kernel.flat, cache_2d)
-        if self.specs['method'] == 'rms':
-            np.sqrt(output, out=output)
+        if self.specs['method'] == 'max':
+            for i in range(grid[0]):
+                for j in range(grid[1]):
+                    topleft = offset + stride * (i,j)
+                    bottomright = topleft + kernel_size
+                    cache[:] = image[topleft[0]:bottomright[0], 
+                                     topleft[1]:bottomright[1]]
+                    cache *= kernel[:, :, np.newaxis]
+                    output[i,j] = cache_2d.max(axis=0)
+        else:
+            if self.specs['method'] == 'rms':
+                image = image.astype(np.float64) ** 2
+            for i in range(grid[0]):
+                for j in range(grid[1]):
+                    topleft = offset + stride * (i,j)
+                    bottomright = topleft + kernel_size
+                    cache[:] = image[topleft[0]:bottomright[0], 
+                                     topleft[1]:bottomright[1]]
+                    output[i,j] = np.dot(kernel.flat, cache_2d)
+            if self.specs['method'] == 'rms':
+                np.sqrt(output, out=output)
         return output
+    
+    @staticmethod
+    def kernel_gaussian(size, sigma):
+        """ A Gaussian kernel of the given size and given sigma
+        
+        Input:
+            size: the size of the gaussian kernel. Should be an odd number
+            sigma: the standard deviation of the gaussian kernel.
+        """
+        size = max(size, 3)
+        if size % 2 == 0:
+            size += 1
+        k = (size-1) / 2
+        G = - np.arange(-k, k+1)**2
+        G = (G + G[:, np.newaxis]) / (2. * sigma * sigma)
+        np.exp(G, out = G)
+        G /= G.sum()
+        return G
 
 
 class WeightedPooler(Pooler):
