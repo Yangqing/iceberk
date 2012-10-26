@@ -40,3 +40,29 @@ def fastpooling(image, grid, method):
             output.ctypes.data_as(ct.POINTER(ct.c_double)))
     return output
 
+
+################################################################################
+# fast mean and std
+################################################################################
+_FASTMATH.faststd.restype = None
+_FASTMATH.faststd.argtypes = [ct.POINTER(ct.c_double),
+                              ct.POINTER(ct.c_double),
+                              ct.c_int,
+                              ct.c_int,
+                              ct.c_int,
+                              ct.POINTER(ct.c_double)]
+
+def meanstd(mat, axis):
+    if mat.flags['C_CONTIGUOUS'] != True \
+            or mat.dtype != np.float64 or mat.ndim != 2:
+        raise ValueError, "Unsupported input matrix."
+    n = mat.shape[1-axis]
+    mean = mat.mean(axis)
+    std = np.empty(n, dtype = np.float64)
+    _FASTMATH.faststd(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
+            mean.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.c_int(mat.shape[0]), 
+            ct.c_int(mat.shape[1]),
+            ct.c_int(axis),
+            std.ctypes.data_as(ct.POINTER(ct.c_double)))
+    return mean, std
