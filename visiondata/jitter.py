@@ -39,9 +39,10 @@ def jitter(img, translation, rotation, scaling):
         img_jittered.reshape(img_size)
     return img_jittered
 
-def random_jitter(img, translation_std, rotation_std, scaling_std):
+def randr_jitter(img, translation_std, rotation_std, scaling_std):
     """Randomly jitter an image by providing the translation, rotation and
-    scaling standard deviations
+    scaling standard deviations. The exact parameters are sampled from Gaussian
+    distributions.
     
     Definition of std:
         translation: in the number of pixels
@@ -51,6 +52,21 @@ def random_jitter(img, translation_std, rotation_std, scaling_std):
     translation = np.random.randn(2) * translation_std
     rotation = np.random.randn() * np.pi * rotation_std / 180.
     scaling = np.random.randn() * scaling_std
+    return jitter(img, translation, rotation, scaling)
+
+def rand_jitter(img, translation_max, rotation_max, scaling_max):
+    """Randomly jitter an image by providing the translation, rotation and
+    scaling standard deviations. The exact parameters are sampled from uniform
+    distributions bounded by [-max, max].
+    
+    Definition of max:
+        translation: in the number of pixels
+        rotation: in degrees
+        scaling: in log_2 scale, e.g. scaling=0.5 means 2^0.5 times larger
+    """
+    translation = (np.random.rand(2) * 2. - 1.) * translation_max
+    rotation = (np.random.rand() * 2. - 1.) * np.pi * rotation_max / 180.
+    scaling = (np.random.rand() * 2. - 1.) * scaling_max
     return jitter(img, translation, rotation, scaling)
 
 if __name__ == "_main__":
