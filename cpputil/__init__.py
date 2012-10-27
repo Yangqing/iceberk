@@ -4,6 +4,7 @@ faster or handles some numpy tricky issues.
 import ctypes as ct
 import numpy as np
 import os
+from iceberk import mpi
 
 # first, let's import the library
 try:
@@ -44,25 +45,38 @@ def fastpooling(image, grid, method):
 ################################################################################
 # fast mean and std
 ################################################################################
-_FASTMATH.faststd.restype = None
-_FASTMATH.faststd.argtypes = [ct.POINTER(ct.c_double),
+_FASTMATH.fastex2.restype = None
+_FASTMATH.fastex2.argtypes = [ct.POINTER(ct.c_double),
                               ct.POINTER(ct.c_double),
                               ct.c_int,
                               ct.c_int,
                               ct.c_int,
                               ct.POINTER(ct.c_double)]
 
-def meanstd(mat, axis):
+def column_meanstd(mat):
+    """Computes the mean and std of the matrix, assuming that it is chopped
+    along the rows and stored in a distributed fashion.
+    """
     if mat.flags['C_CONTIGUOUS'] != True \
             or mat.dtype != np.float64 or mat.ndim != 2:
         raise ValueError, "Unsupported input matrix."
-    n = mat.shape[1-axis]
-    mean = mat.mean(axis)
-    std = np.empty(n, dtype = np.float64)
-    _FASTMATH.faststd(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
-            mean.ctypes.data_as(ct.POINTER(ct.c_double)),
+    num_data_local = mat.shape[0]
+    # get the mean
+    m_local = mat.sum(0)
+    m = np.empty_like(m_local)
+    num_data = mpi.COMM.allreduce(num_data_local)
+    mpi.COMM.Allreduce(m_local, m)
+    m /= num_data
+    # get the std
+    std_local = np.empty_like(m)
+    _FASTMATH.fastex2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
+            m.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(mat.shape[0]), 
             ct.c_int(mat.shape[1]),
-            ct.c_int(axis),
-            std.ctypes.data_as(ct.POINTER(ct.c_double)))
-    return mean, std
+            ct.c_int(0),
+            std_local.ctypes.data_as(ct.POINTER(ct.c_double)))
+    std = np.empty_like(std_local)
+    mpi.COMM.Allreduce(std_local, std)
+    std /= num_data
+    np.sqrt(std, out=std)
+    return m, std

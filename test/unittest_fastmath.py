@@ -4,7 +4,7 @@ import os
 import unittest
 import iceberk as ice
 
-from iceberk import cpputil
+from iceberk import cpputil, mpi
 
 class TestFastpool(unittest.TestCase):
     """Test the mpi module
@@ -72,10 +72,19 @@ class TestMeanStd(unittest.TestCase):
     
     def testMeanStd(self):
         mat = np.random.rand(20,10)
-        for axis in range(2):
-            m, std = cpputil.meanstd(mat, axis)
-            np.testing.assert_almost_equal(m, mat.mean(axis))
-            np.testing.assert_almost_equal(std, mat.std(axis))
+        m_test, std_test = cpputil.column_meanstd(mat)
+        mats = mpi.COMM.gather(mat)
+        if mpi.is_root():
+            mats = np.vstack(mats)
+            m = mats.mean(0)
+            std = mats.std(0)
+        else:
+            m = None
+            std = None
+        m = mpi.COMM.bcast(m)
+        std = mpi.COMM.bcast(std)
+        np.testing.assert_almost_equal(m, m_test)
+        np.testing.assert_almost_equal(std, std_test)
 
 """
     def testMeanStd_large(self):

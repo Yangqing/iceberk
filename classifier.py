@@ -12,7 +12,7 @@ solver, and if the loss function or regularizer is not differentiable everywhere
 (like the v-style L1 regularizer), we will use the subgradient methods.
 '''
 
-from iceberk import mpi, mathutil
+from iceberk import cpputil, mpi, mathutil
 import logging
 import numpy as np
 from scipy import optimize
@@ -34,30 +34,18 @@ def to_one_of_k_coding(Y, fill = -1):
 
 def feature_meanstd(mat):
     '''
-    Utility function that does in-place normalization of features.
+    Utility function that does distributed mean and std computation
     Input:
         mat: the local data matrix, each row is a feature vector and each 
              column is a feature dim
     Output:
         m:      the mean for each dimension
         std:    the standard deviation for each dimension
+    
+    The implementation is actually moved to iceberk.cpputil now, we leave the
+    code here just for backward compatibility
     '''
-    # subtract mean
-    N = mpi.COMM.allreduce(mat.shape[0])
-    m = np.empty_like(mat[0])
-    mpi.COMM.Allreduce(np.sum(mat, axis=0), m)
-    m /= N
-    # we perform in-place modifications
-    mat -= m
-    # normalize variance
-    std = np.empty_like(mat[0])
-    mpi.COMM.Allreduce(np.sum(mat**2,axis=0), std)
-    std /= N
-    # we also add a regularization term
-    std = np.sqrt(std) + np.finfo(np.float64).eps
-    # recover the original mat
-    mat += m
-    return m, std
+    return cpputil.column_meanstd(mat)
 
 class Solver(object):
     '''

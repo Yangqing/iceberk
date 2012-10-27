@@ -93,51 +93,38 @@ int fastpooling(
     return 0;
 }
 
-void faststd(const double* const data, // input data
+void fastex2(const double* const data, // input data
              const double* const mean, // input mean
              const int nrows, // num of rows
              const int ncols, // num of cols
-             const int axis, // axis along which to do std
-             double* const std // output std
+             const int axis, // axis along which to do ex2
+             double* const ex2 // output ex2
              )
 {
     int num_data;
     int num_output;
     double datum;
-    double* comp = NULL;
     if (axis == 0) {
         num_data = nrows;
         num_output = ncols;
-        comp = new double[num_output];
-        memset(comp, 0, sizeof(double) * num_output);
-        memset(std, 0, sizeof(double) * num_output);
+        memset(ex2, 0, sizeof(double) * num_output);
         for (int i = 0; i < nrows; ++i) {
             for (int j = 0; j < ncols; ++j) {
                 datum = data[i*ncols+j] - mean[j];
-                std[j] += datum * datum;
-                comp[j] += datum;
+                ex2[j] += datum * datum;
             }
         }
     } else {
         num_data = ncols;
         num_output = nrows;
-        comp = new double[num_output];
-        memset(comp, 0, sizeof(double) * num_output);
-        memset(std, 0, sizeof(double) * num_output);
+        memset(ex2, 0, sizeof(double) * num_output);
         for (int i = 0; i < nrows; ++i) {
             for (int j = 0; j < ncols; ++j) {
                 datum = data[i*ncols+j] - mean[i];
-                std[i] += datum * datum;
-                comp[i] += datum;
+                ex2[i] += datum * datum;
             }
         }
     }
-    // now, do normalization
-    for (int i = 0; i < num_output; ++i) {
-        //std[i] = sqrt(std[i] / num_data);
-        std[i] = sqrt((std[i] - comp[i]*comp[i] / num_data) / num_data);
-    }
-    delete[] comp;
 }
 
 } // extern "C"
