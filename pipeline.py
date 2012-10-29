@@ -129,6 +129,7 @@ class ConvLayer(list):
             data[0] = temp
             for i in range(1,dataset.size()):
                 data[i] = self.process(dataset.image(i), as_vector = as_2d)
+        mpi.barrier()
         return data
     
     def sample(self, dataset, num_patches,
@@ -415,7 +416,7 @@ class KmeansTrainer(DictionaryTrainer):
     """KmeansTrainer Performs Kmeans training
     specs:
         k: the number of kmeans centers
-        n_init: number of indepent kmeans tries (default 1)
+        n_init: number of indepedent kmeans tries (default 1)
         max_iter: the maximum mumber of kmeans iterations (default 100)
         tol: the tolerance threshold before we stop iterating (default 1e-4)
     """

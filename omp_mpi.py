@@ -20,14 +20,12 @@ def omp1_predict(X, centroids):
     val = np.empty(X.shape[0])
     # in case we are going to deal with a large matrix, we buffer dots to avoid
     # multiple memory new / deletes.
-    dots = None
+    dots = np.empty((min(_MINIBATCH, X.shape[0]), centroids.shape[0]),
+                    dtype = X.dtype)
     for start in range(0, X.shape[0], _MINIBATCH):
         end = min(start+_MINIBATCH, X.shape[0])
         batchsize = end-start
-        if dots is None:
-            dots = mathutil.dot(X[start:end], centroids.T)
-        else:
-            mathutil.dot(X[start:end], centroids.T, out = dots[:batchsize])
+        mathutil.dot(X[start:end], centroids.T, out = dots[:batchsize])
         np.abs(dots, out=dots)
         idx[start:end] = np.argmax(dots[:batchsize], axis=1)
         val[start:end] = dots[range(batchsize), idx[start:end]]

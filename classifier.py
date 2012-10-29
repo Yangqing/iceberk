@@ -134,6 +134,8 @@ class SolverSC(Solver):
         else:
             self._num_data = mpi.COMM.allreduce(weight.sum())
         self._dim = self._X.shape[1]
+        # prediction cache
+        self._pred = np.empty(X.shape[0], dtype=X.dtype)
         if param_init is None:
             param_init = np.zeros(self._dim+1)
         elif len(param_init) == 2:
@@ -154,9 +156,10 @@ class SolverSC(Solver):
         w = param[:-1]
         b = param[-1]
         # prediction is a vector
-        pred = np.dot(solver._X, w) + b
+        np.dot(solver._X, w, out=solver._pred)
+        solver._pred += b
         # call the loss
-        flocal, gpred = solver.loss(solver._Y, pred, solver._weight,
+        flocal, gpred = solver.loss(solver._Y, solver._pred, solver._weight,
                                    **solver._lossargs)
         # get the gradient for both w and b
         glocal = np.empty(param.shape)
@@ -199,6 +202,7 @@ class SolverMC(Solver):
         else:
             self._num_data = mpi.COMM.allreduce(weight.sum())
         self._dim = self._X.shape[1]
+        self._pred = np.empty((X.shape[0], self._K), dtype = X.dtype)
         if param_init is None:
             param_init = np.zeros(self._K * (self._dim+1))
         elif len(param_init) == 2:
@@ -227,10 +231,10 @@ class SolverMC(Solver):
         w = wb[:K*dim].reshape((dim, K))
         b = wb[K*dim:]
         # pred is a matrix of size [num_datalocal, K]
-        pred = mathutil.dot(solver._X, w)
-        pred += b
+        mathutil.dot(solver._X, w, out = solver._pred)
+        solver._pred += b
         # compute the loss function
-        flocal,gpred = solver.loss(solver._Y, pred, solver._weight,
+        flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
                                    **solver._lossargs)
         glocal = np.empty(wb.shape)
         glocal[:K*dim] = mathutil.dot(solver._X.T, gpred).flat
@@ -244,7 +248,7 @@ class SolverMC(Solver):
         # do mpi reduction
         mpi.barrier()
         f = mpi.COMM.allreduce(flocal)
-        g = np.empty(glocal.shape,dtype=glocal.dtype)
+        g = np.empty_like(glocal)
         mpi.COMM.Allreduce(glocal,g)
         return f, g
 
