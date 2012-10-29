@@ -70,6 +70,19 @@ class TestMeanStd(unittest.TestCase):
     """Test the mpi module
     """
     
+    def testFastStdNoMPI(self):
+        mat = np.random.rand(20,10)
+        # test no mean case
+        for axis in range(2):
+            std_test = cpputil.fast_std_nompi(mat, axis)
+            std = np.std(mat, axis)
+            np.testing.assert_almost_equal(std, std_test)
+        # test mean case
+        for axis in range(2):
+            std_test = cpputil.fast_std_nompi(mat, axis, np.mean(mat, axis))
+            std = np.std(mat, axis)
+            np.testing.assert_almost_equal(std, std_test)
+    
     def testMeanStd(self):
         mat = np.random.rand(20,10)
         m_test, std_test = cpputil.column_meanstd(mat)
