@@ -42,6 +42,22 @@ class TestMathutil(unittest.TestCase):
             self.assertTrue(result.flags['C_CONTIGUOUS'])
             np.testing.assert_array_almost_equal(result, result_ref)
 
+    def testgemm_with_out(self):
+        for A, B in self.test_matrices:
+            result_ref = np.dot(A,B)
+            result = np.empty(result_ref.shape, dtype = A.dtype)
+            mathutil.gemm(1., A, B, out=result)
+            self.assertTrue(result.flags['C_CONTIGUOUS'])
+            np.testing.assert_array_almost_equal(result, result_ref)
+
+    def testgemm_scale(self):
+        for A, B in self.test_matrices:
+            result_ref = np.dot(A,B) * 2.
+            result = np.empty(result_ref.shape, dtype = A.dtype)
+            mathutil.gemm(2., A, B, out=result)
+            self.assertTrue(result.flags['C_CONTIGUOUS'])
+            np.testing.assert_array_almost_equal(result, result_ref)
+
     def testdot(self):
         for A, B in self.test_matrices:
             result = mathutil.dot(A, B)

@@ -1,7 +1,7 @@
 import numpy as np
 from iceberk import mpi
 
-def gemm(alpha,A,B,dtype=None,**kwargs):
+def gemm(alpha, A, B, dtype=None, out=None):
     '''A gemm function that uses scipy fblas functions, avoiding matrix copy
     when the input is transposed.
     
@@ -13,7 +13,8 @@ def gemm(alpha,A,B,dtype=None,**kwargs):
     if dtype is None:
         dtype=A.dtype
     if dtype != np.float32 and dtype != np.float64:
-        raise TypeError, 'Error: this function cannot deal with dtype {}.'.format(dtype)
+        raise TypeError, 'Error: this function cannot deal with dtype {}.'\
+                .format(dtype)
     if not (A.flags['F_CONTIGUOUS'] or A.flags['C_CONTIGUOUS']) \
             or not (B.flags['F_CONTIGUOUS'] or B.flags['C_CONTIGUOUS']):
         raise TypeError, 'Matrices should either be C or F contiguous.'
@@ -35,10 +36,23 @@ def gemm(alpha,A,B,dtype=None,**kwargs):
         trans_a=0
     else:
         trans_a=1
-    if dtype==np.float32:
-        return sgemm(alpha,B,A,trans_a=trans_b,trans_b=trans_a,**kwargs).T
+        
+    # actually do the computation. Instead of doing A*B we actually do (B'*A')'
+    # to make the output matrix C-contiguous as we often want.
+    if dtype == np.float32:
+        fblas_gemm = sgemm
     else:
-        return dgemm(alpha,B,A,trans_a=trans_b,trans_b=trans_a,**kwargs).T
+        fblas_gemm = dgemm
+    if out is None:
+        return fblas_gemm(alpha,B,A,trans_a=trans_b,trans_b=trans_a).T
+    else:
+        if out.dtype != dtype:
+            raise TypeError, "The output matrix should have type %s"\
+                    % repr(dtype)
+        if not out.flags['C_CONTIGUOUS']:
+            raise TypeError, "The output matrix should be C contiguous."
+        fblas_gemm(alpha, B, A, 0.0, out.T, trans_b, trans_a, True)
+        return out
 
 def dot(A,B):
     '''
