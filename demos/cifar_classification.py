@@ -43,24 +43,26 @@ def cifar_demo():
     logging.info('Loading cifar data...')
     cifar = visiondata.CifarDataset(FLAGS.root, is_training=True)
     cifar_test = visiondata.CifarDataset(FLAGS.root, is_training=False)
-    
     conv = pipeline.ConvLayer([
             pipeline.PatchExtractor([6,6], 1), # extracts patches
             pipeline.MeanvarNormalizer({'reg': 10}), # normalizes the patches
             pipeline.LinearEncoder({},
                     trainer = pipeline.ZcaTrainer({'reg': 0.1})), # Does whitening
-            pipeline.TriangleEncoder({},
-                    trainer = pipeline.KmeansTrainer(
+            pipeline.ReLUEncoder({},
+                    trainer = pipeline.OMPTrainer(
                             {'k': 800, 'max_iter':100})), # does encoding
             pipeline.SpatialPooler({'grid': (2,2), 'method': 'ave'}) # average pool
             ])
     logging.info('Training the pipeline...')
-    conv.train(cifar, 400000)
+    conv.train(cifar, 50000)
+    logging.info('Dumping the pipeline...')
     if mpi.is_root():
         with open(os.path.join(FLAGS.output_dir, FLAGS.model_file),'w') as fid:
             pickle.dump(conv, fid)
             fid.close()
-    
+"""
+    with open(os.path.join(FLAGS.output_dir, FLAGS.model_file),'w') as fid:
+        conv = pickle.load(fid)
     logging.info('Extracting features...')
     Xtrain = conv.process_dataset(cifar, as_2d = True)
     mpi.dump_matrix_multi(Xtrain,
@@ -72,7 +74,7 @@ def cifar_demo():
                           os.path.join(FLAGS.output_dir, 
                                        FLAGS.feature_file+'_test'))
     Ytest = cifar_test.labels().astype(np.int)
-    
+
     # normalization
     m, std = classifier.feature_meanstd(Xtrain)
     Xtrain -= m
@@ -91,13 +93,14 @@ def cifar_demo():
     
     logging.info('Training accuracy: %f' % accu)
     logging.info('Testing accuracy: %f' % accu_test)
+"""
 
 if __name__ == "__main__":
     gflags.FLAGS(sys.argv)
     if mpi.is_root():
         logging.basicConfig(level=logging.DEBUG)
-        if FLAGS.profile != "":
-            cProfile.run('cifar_demo()', FLAGS.profile)
+        if FLAGS.profile_file != "":
+            cProfile.run('cifar_demo()', FLAGS.profile_file)
         else:
             cifar_demo()
     else:

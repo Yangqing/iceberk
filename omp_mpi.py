@@ -1,7 +1,7 @@
 """ orthogonal matching pursuit training and prediction code.
 """
 
-from iceberk import mpi
+from iceberk import mpi, mathutil
 import logging
 import numpy as np
 
@@ -18,11 +18,19 @@ def omp1_predict(X, centroids):
     '''
     idx = np.empty(X.shape[0], dtype=np.int)
     val = np.empty(X.shape[0])
+    # in case we are going to deal with a large matrix, we buffer dots to avoid
+    # multiple memory new / deletes.
+    dots = None
     for start in range(0, X.shape[0], _MINIBATCH):
         end = min(start+_MINIBATCH, X.shape[0])
-        dots = np.dot(X[start:end], centroids.T)
-        idx[start:end] = np.argmax(np.abs(dots), axis=1)
-        val[start:end] = dots[range(end-start), idx[start:end]]
+        batchsize = end-start
+        if dots is None:
+            dots = mathutil.dot(X[start:end], centroids.T)
+        else:
+            mathutil.dot(X[start:end], centroids.T, out = dots[:batchsize])
+        np.abs(dots, out=dots)
+        idx[start:end] = np.argmax(dots[:batchsize], axis=1)
+        val[start:end] = dots[range(batchsize), idx[start:end]]
     return idx, val
 
 
@@ -62,6 +70,8 @@ def omp1(X, k, max_iter=100, tol=1e-4):
         if converged:
             logging.debug("OMP has converged.")
             break
+    else:
+        logging.debug("OMP has reached its maximum iteration.")
     return centroids
 
 def omp1_maximize(X, labels, val, k):
