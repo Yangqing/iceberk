@@ -45,13 +45,37 @@ def fastpooling(image, grid, method):
 ################################################################################
 # fast mean and std
 ################################################################################
-_FASTMATH.fastex2.restype = None
-_FASTMATH.fastex2.argtypes = [ct.POINTER(ct.c_double),
+_FASTMATH.fastsumx2.restype = None
+_FASTMATH.fastsumx2.argtypes = [ct.POINTER(ct.c_double),
                               ct.POINTER(ct.c_double),
                               ct.c_int,
                               ct.c_int,
                               ct.c_int,
                               ct.POINTER(ct.c_double)]
+
+def fast_std_nompi(mat, axis, mean = None):
+    """Equivalent to np.std(mean, axis) without duplicating the 
+    matrix like numpy does. Will save some time when dealing with large 
+    matrices. Pass in the precomputed mean, or we will compute it inside the
+    function.
+    
+    This program does NOT use mpi.
+    """
+    if mat.flags['C_CONTIGUOUS'] != True \
+            or mat.dtype != np.float64 or mat.ndim != 2:
+        raise ValueError, "Unsupported input matrix."
+    if mean is None or mean.dtype != np.float64:
+        mean = np.mean(mat, axis)
+    std = np.empty_like(mean)
+    _FASTMATH.fastsumx2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
+            mean.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.c_int(mat.shape[0]), 
+            ct.c_int(mat.shape[1]),
+            ct.c_int(axis),
+            std.ctypes.data_as(ct.POINTER(ct.c_double)))
+    std /= (mat.shape[axis])
+    np.sqrt(std, out=std)
+    return std
 
 def column_meanstd(mat):
     """Computes the mean and std of the matrix, assuming that it is chopped
@@ -68,15 +92,15 @@ def column_meanstd(mat):
     mpi.COMM.Allreduce(m_local, m)
     m /= num_data
     # get the std
-    std_local = np.empty_like(m)
-    _FASTMATH.fastex2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
+    sumx2_local = np.empty_like(m)
+    _FASTMATH.fastsumx2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
             m.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(mat.shape[0]), 
             ct.c_int(mat.shape[1]),
             ct.c_int(0),
-            std_local.ctypes.data_as(ct.POINTER(ct.c_double)))
-    std = np.empty_like(std_local)
-    mpi.COMM.Allreduce(std_local, std)
+            sumx2_local.ctypes.data_as(ct.POINTER(ct.c_double)))
+    std = np.empty_like(sumx2_local)
+    mpi.COMM.Allreduce(sumx2_local, std)
     std /= num_data
     np.sqrt(std, out=std)
     return m, std
