@@ -513,7 +513,7 @@ class ThresholdEncoder(FeatureEncoder):
             output = temp.reshape(imshape + (N*2,))
         else:
             # otherwise, we will take the absolute value
-            output = np.abs(output)
+            np.abs(output, out=output)
         output -= alpha
         np.clip(output, 0., np.inf, out=output)
         return output
