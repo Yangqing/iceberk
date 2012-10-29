@@ -54,7 +54,7 @@ def gemm(alpha, A, B, dtype=None, out=None):
         fblas_gemm(alpha, B, A, 0.0, out.T, trans_b, trans_a, True)
         return out
 
-def dot(A,B):
+def dot(A, B, out=None):
     '''
     a simple wrapper that mimics np.dot (if A and B are both matrices!)
     This function solves the problem that np.dot copies matrices when
@@ -66,7 +66,7 @@ def dot(A,B):
     Raises:
         TypeError, if the type of matrices is wrong.
     '''
-    return gemm(1.0,A,B)
+    return gemm(1.0, A, B, out=out)
 
 def dot_image(image, B):
     """ A wrapper that does dot for a multidimensional image that is often used
