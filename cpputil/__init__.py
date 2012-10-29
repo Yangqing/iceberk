@@ -59,7 +59,9 @@ def fast_std_nompi(mat, axis, mean = None):
     matrices. Pass in the precomputed mean, or we will compute it inside the
     function.
     
-    This program does NOT use mpi.
+    This program does NOT use mpi. Also, we do not check the correctness of the
+    passed in mean values, so if you want to compute the length of each vector,
+    simply pass in an all-0 mean vector.
     """
     if mat.flags['C_CONTIGUOUS'] != True \
             or mat.dtype != np.float64 or mat.ndim != 2:

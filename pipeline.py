@@ -324,7 +324,6 @@ class MeanvarNormalizer(Normalizer):
         image.resize(shape_old)
         image_out.resize(shape_old)
         return image_out
-            
 
 class L2Normalizer(Normalizer):
     """Normalizes the patches so they lie on a unit ball.
@@ -335,9 +334,14 @@ class L2Normalizer(Normalizer):
     def process(self, image):
         """ normalizes the patches
         """
-        reg = self.specs.get('reg', np.finfo(np.float64).eps)
-        image_out = image / (np.sqrt(np.sum(image**2, axis = -1)) + reg).\
-                                reshape(image.shape[:-1] + (1,))
+        shape_old = image.shape
+        shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
+        image.resize(shape_temp)
+        length = cpputil.fast_std_nompi(image, 1, np.zeros(shape_temp[1]))
+        length += self.specs.get('reg', np.finfo(np.float64).eps)
+        image_out = image / length[:, np.newaxis]
+        image.resize(shape_old)
+        image_out.resize(shape_old)
         return image_out
 
 
