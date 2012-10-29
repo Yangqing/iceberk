@@ -6,7 +6,8 @@ contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
 import ctypes as ct
-from iceberk import kmeans_mpi, mpi, omp_mpi, mathutil, mathutil
+from iceberk import kmeans_mpi, mpi, omp_mpi, mathutil
+from iceberk import cpputil
 import logging
 import numpy as np
 import os
@@ -167,7 +168,7 @@ class Extractor(Component):
         num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
         sampler = mathutil.ReservoirSampler(num_patches)
         order = np.arange(dataset.size())
-        if exhaustive:
+        if not exhaustive:
             order = np.random.permutation(order)
         for i in range(dataset.size()):
             if previous_layer is not None:
@@ -183,6 +184,7 @@ class Extractor(Component):
                 idx = np.random.permutation(np.arange(feat.shape[0]))
                 num_selected = max(int(feat.shape[0] * ratio_per_image), 1)
                 sampler.consider(feat[idx[:num_selected]])
+                # as soon as we hit the number of patches needed, quit
                 if sampler.num_considered() > num_patches:
                     break
         if sampler.num_considered() < num_patches:
@@ -518,6 +520,16 @@ class ThresholdEncoder(FeatureEncoder):
         np.clip(output, 0., np.inf, out=output)
         return output
 
+
+class ReLUEncoder(ThresholdEncoder):
+    """ ReLUEncoder is simply the threshold encoder with the alpha term set to
+    zero.
+    """
+    def __init__(self, *args, **kwargs):
+        super(ReLUEncoder, self).__init__(*args, **kwargs)
+        self.specs['alpha'] = 0.
+
+
 class TriangleEncoder(FeatureEncoder):
     """ Does triangle encoding as described in Coates and Ng's AISTATS paper
     """
@@ -607,23 +619,6 @@ class SpatialPooler(Pooler):
         grid: an int or a tuple indicating the pooling grid.
         method: 'max', 'ave' or 'rms'.
     """
-    _METHODS = {'max':0, 'ave': 1, 'rms': 2}
-    # fast pooling C library
-    try:
-        _FASTPOOL = np.ctypeslib.load_library('libfastpool.so',
-                                              os.path.dirname(__file__))
-    except Exception, e:
-        raise RuntimeError, "I cannot load libfastpool.so. please run make."
-    _FASTPOOL.fastpooling.restype = ct.c_int
-    _FASTPOOL.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
-                                          ct.c_int, # height
-                                          ct.c_int, # width
-                                          ct.c_int, # num_channels
-                                          ct.c_int, # grid[0]
-                                          ct.c_int, # grid[1]
-                                          ct.c_int, # method
-                                          ct.POINTER(ct.c_double) # output
-                                         ]
     
     def set_grid(self, grid):
         """ The function is provided in case one needs to change the grid of
@@ -639,16 +634,7 @@ class SpatialPooler(Pooler):
         grid = self.specs['grid']
         if type(grid) is int:
             grid = (grid, grid)
-        output = np.empty((grid[0], grid[1], image.shape[-1]))
-        SpatialPooler._FASTPOOL.fastpooling(\
-                image.ctypes.data_as(ct.POINTER(ct.c_double)),
-                ct.c_int(image.shape[0]),
-                ct.c_int(image.shape[1]),
-                ct.c_int(image.shape[2]),
-                ct.c_int(grid[0]),
-                ct.c_int(grid[1]),
-                ct.c_int(SpatialPooler._METHODS[self.specs['method']]),
-                output.ctypes.data_as(ct.POINTER(ct.c_double)))
+        output = cpputil.fastpooling(image, grid, self.specs['method'])
         return output
 
 class PyramidPooler(MetaPooler):
@@ -718,7 +704,8 @@ class KernelPooler(Pooler):
     specs:
         kernel: a 2D numpy array, non-negative
         stride: the stride with which this kernel should be carried out
-        method: 'ave' or 'rms'
+        method: 'ave' or 'rms'. You can also use 'max' which finds the max value
+            after the weighting, but I feel that it's not very well-defined.
     """
     def __init__(self, specs):
         Pooler.__init__(self, specs)
@@ -734,8 +721,6 @@ class KernelPooler(Pooler):
             self.specs['stride'] = (stride, stride)
         self.specs['stride'] = np.asarray(self.specs['stride'], dtype=int)
         method = self.specs['method']
-        if method != 'ave' and method != 'rms':
-            raise ValueError, "Unrecognized method: %s" % method
     
     def process(self, image):
         image_size = np.asarray(image.shape[:2])
@@ -749,18 +734,46 @@ class KernelPooler(Pooler):
         cache = np.zeros((kernel_size[0], kernel_size[1], image.shape[2]))
         cache_2d = cache.view()
         cache_2d.shape = (kernel_size[0] * kernel_size[1], image.shape[2])
-        if self.specs['method'] == 'rms':
-            image = image.astype(np.float64) ** 2
-        for i in range(grid[0]):
-            for j in range(grid[1]):
-                topleft = offset + stride * (i,j)
-                bottomright = topleft + kernel_size
-                cache[:] = image[topleft[0]:bottomright[0], 
-                                 topleft[1]:bottomright[1]]
-                output[i,j] = np.dot(kernel.flat, cache_2d)
-        if self.specs['method'] == 'rms':
-            np.sqrt(output, out=output)
+        if self.specs['method'] == 'max':
+            for i in range(grid[0]):
+                for j in range(grid[1]):
+                    topleft = offset + stride * (i,j)
+                    bottomright = topleft + kernel_size
+                    cache[:] = image[topleft[0]:bottomright[0], 
+                                     topleft[1]:bottomright[1]]
+                    cache *= kernel[:, :, np.newaxis]
+                    output[i,j] = cache_2d.max(axis=0)
+        else:
+            if self.specs['method'] == 'rms':
+                image = image.astype(np.float64) ** 2
+            for i in range(grid[0]):
+                for j in range(grid[1]):
+                    topleft = offset + stride * (i,j)
+                    bottomright = topleft + kernel_size
+                    cache[:] = image[topleft[0]:bottomright[0], 
+                                     topleft[1]:bottomright[1]]
+                    output[i,j] = np.dot(kernel.flat, cache_2d)
+            if self.specs['method'] == 'rms':
+                np.sqrt(output, out=output)
         return output
+    
+    @staticmethod
+    def kernel_gaussian(size, sigma):
+        """ A Gaussian kernel of the given size and given sigma
+        
+        Input:
+            size: the size of the gaussian kernel. Should be an odd number
+            sigma: the standard deviation of the gaussian kernel.
+        """
+        size = max(size, 3)
+        if size % 2 == 0:
+            size += 1
+        k = (size-1) / 2
+        G = - np.arange(-k, k+1)**2
+        G = (G + G[:, np.newaxis]) / (2. * sigma * sigma)
+        np.exp(G, out = G)
+        G /= G.sum()
+        return G
 
 
 class WeightedPooler(Pooler):

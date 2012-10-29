@@ -4,38 +4,11 @@ import os
 import unittest
 import iceberk as ice
 
+from iceberk import cpputil, mpi
 
 class TestFastpool(unittest.TestCase):
     """Test the mpi module
     """
-    def setUp(self):
-        self.methods = {'max':0, 'ave': 1, 'rms': 2}
-        # fast pooling C library
-        self.fp = np.ctypeslib.load_library('libfastpool.so',
-                                            os.path.dirname(ice.__file__))
-        self.fp.fastpooling.restype = ct.c_int
-        self.fp.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
-                                        ct.c_int, # height
-                                        ct.c_int, # width
-                                        ct.c_int, # num_channels
-                                        ct.c_int, # grid[0]
-                                        ct.c_int, # grid[1]
-                                        ct.c_int, # method
-                                        ct.POINTER(ct.c_double) # output
-                                       ]
-    
-    def wrapper(self, image, grid, method):
-        output = np.empty((grid[0], grid[1], image.shape[-1]))
-        self.fp.fastpooling(
-                image.ctypes.data_as(ct.POINTER(ct.c_double)),
-                ct.c_int(image.shape[0]),
-                ct.c_int(image.shape[1]),
-                ct.c_int(image.shape[2]),
-                ct.c_int(grid[0]),
-                ct.c_int(grid[1]),
-                ct.c_int(method),
-                output.ctypes.data_as(ct.POINTER(ct.c_double)))
-        return output.flatten(), output.shape
     
     def testPoolingSingle(self):
         data = np.random.rand(10,10,3)
@@ -44,11 +17,11 @@ class TestFastpool(unittest.TestCase):
         pooled_ave = data_2d.mean(axis=0)
         pooled_rms = np.sqrt((data_2d**2).mean(axis=0))
         np.testing.assert_almost_equal(pooled_max,
-                self.wrapper(data, (1,1), self.methods['max'])[0])
+                cpputil.fastpooling(data, (1,1), 'max').flatten())
         np.testing.assert_almost_equal(pooled_ave,
-                self.wrapper(data, (1,1), self.methods['ave'])[0])
+                cpputil.fastpooling(data, (1,1), 'ave').flatten())
         np.testing.assert_almost_equal(pooled_rms,
-                self.wrapper(data, (1,1), self.methods['rms'])[0])
+                cpputil.fastpooling(data, (1,1), 'rms').flatten())
         
     def testPoolingMultiple(self):
         height = 10
@@ -74,11 +47,11 @@ class TestFastpool(unittest.TestCase):
                      for i in range(num_pool)])
             pooled_rms = np.sqrt(pooled_rms)
             np.testing.assert_almost_equal(pooled_max,
-                    self.wrapper(data, grid, self.methods['max'])[0])
+                    cpputil.fastpooling(data, grid, 'max').flatten())
             np.testing.assert_almost_equal(pooled_ave,
-                    self.wrapper(data, grid, self.methods['ave'])[0])
+                    cpputil.fastpooling(data, grid, 'ave').flatten())
             np.testing.assert_almost_equal(pooled_rms,
-                    self.wrapper(data, grid, self.methods['rms'])[0])
+                    cpputil.fastpooling(data, grid, 'rms').flatten())
 
     def testPoolingShapes(self):
         heights = [16, 31, 32, 33, 37, 40]
@@ -90,8 +63,43 @@ class TestFastpool(unittest.TestCase):
                 for channel in channels:
                     data = np.random.rand(height, width, channel)
                     for grid in grids:
-                        shape = self.wrapper(data, grid, self.methods['max'])[1]
+                        shape = cpputil.fastpooling(data, grid, 'max').shape
                         self.assertEqual(shape, grid + (channel,))
+
+class TestMeanStd(unittest.TestCase):
+    """Test the mpi module
+    """
+    
+    def testMeanStd(self):
+        mat = np.random.rand(20,10)
+        m_test, std_test = cpputil.column_meanstd(mat)
+        mats = mpi.COMM.gather(mat)
+        if mpi.is_root():
+            mats = np.vstack(mats)
+            m = mats.mean(0)
+            std = mats.std(0)
+        else:
+            m = None
+            std = None
+        m = mpi.COMM.bcast(m)
+        std = mpi.COMM.bcast(std)
+        np.testing.assert_almost_equal(m, m_test)
+        np.testing.assert_almost_equal(std, std_test)
+
+"""
+    def testMeanStd_large(self):
+        try:
+            mat = np.random.rand(100000, 1000)
+            for axis in range(2):
+                m, std = cpputil.meanstd(mat, axis)
+                np.testing.assert_almost_equal(m, mat.mean(axis))
+                np.testing.assert_almost_equal(std, mat.std(axis))
+        except MemoryError:
+            print 'skipped large matrix test'
+            return
+"""
+        
+        
 
 if __name__ == '__main__':
     unittest.main()
