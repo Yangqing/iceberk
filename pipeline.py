@@ -120,7 +120,7 @@ class ConvLayer(list):
         total = dataset.size_total()
         logging.debug("Processing a total of %s images" % (total,))
         if as_list:
-            data = self.process(dataset.image(i) for i in range(dataset.size()))
+            data = [self.process(dataset.image(i)) for i in range(dataset.size())]
         else:
             # we assume that each image leads to the same feature size
             temp = self.process(dataset.image(0), as_vector = as_2d)
@@ -129,6 +129,7 @@ class ConvLayer(list):
             data[0] = temp
             for i in range(1,dataset.size()):
                 data[i] = self.process(dataset.image(i), as_vector = as_2d)
+        logging.debug("I am done, waiting for others to finish...")
         mpi.barrier()
         return data
     
