@@ -81,19 +81,29 @@ class ConvLayer(list):
         processing components after the pooler, but they should not require
         any training (if they do, you may want to move them to the next layer
         """
+        if len(self) == 0:
+            return
         logging.debug("Training convolutional layer...")
         if not isinstance(self[0], Extractor):
             raise ValueError, \
                   "The first component should be a patch extractor!"
         patches = self[0].sample(dataset, num_patches, self._previous_layer,
                                  exhaustive, ratio_per_image)
-        for component in self[1:]:
+        if len(self) == 1 or isinstance(self[1], Pooler):
+            logging.debug('Nothing to be trained in this layer.')
+            return
+        # actually train the model
+        for i in range(1, len(self)):
+            component = self[i]
             mpi.barrier()
             logging.debug("Training %s..." % (component.__class__.__name__))
-            if isinstance(component, Pooler):
-                # if we've reached pooler, stop training
+            component.train(patches)
+            if i == len(self) - 1 or isinstance(self[i+1], Pooler):
+                # if we've reached a pooler, stop training
                 break
-            patches = component.train(patches)
+            else:
+                # prepare the next component's input
+                patches = component.process(patches)
         logging.debug("Training convolutional layer done.")
         
         
@@ -195,6 +205,8 @@ class Extractor(Component):
         return sampler.get()
     
     def process(self, image):
+        """Each extractor should implement its own process function
+        """
         raise NotImplementedError
             
 class IdenticalExtractor(Extractor):
@@ -303,7 +315,7 @@ class Normalizer(Component):
     def train(self, patches):
         """ For normalizers, usually no training should be needed.
         """
-        return self.process(patches)
+        pass
     
 
 class MeanvarNormalizer(Normalizer):
@@ -460,7 +472,6 @@ class FeatureEncoder(Component):
     def train(self, incoming_patches):
         if self.trainer is not None:
             self.dictionary = self.trainer.train(incoming_patches)[0]
-        return self.process(incoming_patches)
 
 class LinearEncoderBW(FeatureEncoder):
     """A linear encoder that does output = (input + b) * W
