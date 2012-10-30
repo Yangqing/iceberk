@@ -32,12 +32,14 @@ def to_one_of_k_coding(Y, fill = -1):
     Yout[np.arange(len(Y)), Y.astype(int)] = 1
     return Yout
 
-def feature_meanstd(mat):
+def feature_meanstd(mat, reg = None):
     '''
     Utility function that does distributed mean and std computation
     Input:
         mat: the local data matrix, each row is a feature vector and each 
              column is a feature dim
+        reg: if reg is not None, the returned std is computed as
+            std = np.sqrt(std**2 + reg)
     Output:
         m:      the mean for each dimension
         std:    the standard deviation for each dimension
@@ -45,7 +47,10 @@ def feature_meanstd(mat):
     The implementation is actually moved to iceberk.cpputil now, we leave the
     code here just for backward compatibility
     '''
-    return cpputil.column_meanstd(mat)
+    m, std = cpputil.column_meanstd(mat)
+    if reg is not None:
+        std = np.sqrt(std**2 + reg)
+    return m, std
 
 class Solver(object):
     '''
@@ -142,6 +147,9 @@ class SolverSC(Solver):
             # the initialization is w and b
             param_init = np.hstack((param_init[0].flatten(), 
                                     param_init[1].flatten()))
+        # gradient cache
+        self._glocal = np.empty(param_init.shape)
+        self._g = np.empty(param_init.shape)
         # just to make sure every node is on the same page
         mpi.COMM.Bcast(param_init)
         return param_init
@@ -162,20 +170,18 @@ class SolverSC(Solver):
         flocal, gpred = solver.loss(solver._Y, solver._pred, solver._weight,
                                    **solver._lossargs)
         # get the gradient for both w and b
-        glocal = np.empty(param.shape)
-        glocal[:-1] = np.dot(gpred,solver._X)
-        glocal[-1] = gpred.sum()
+        np.dot(gpred, solver._X, out=solver._glocal[:-1])
+        solver._glocal[-1] = gpred.sum()
         # do mpi reduction
         # for the regularization term
         freg, greg = solver.reg(w, **solver._regargs)
         flocal += solver._num_data * solver._gamma / mpi.SIZE * freg
-        glocal[:-1] += solver._num_data * solver._gamma / mpi.SIZE * greg
+        solver._glocal[:-1] += solver._num_data * solver._gamma / mpi.SIZE * greg
         
         mpi.barrier()
         f = mpi.COMM.allreduce(flocal)
-        g = np.empty(glocal.shape)
-        mpi.COMM.Allreduce(glocal,g)
-        return f, g
+        mpi.COMM.Allreduce(solver._glocal, solver._g)
+        return f, solver._g
 
 
 class SolverMC(Solver):
@@ -209,6 +215,9 @@ class SolverMC(Solver):
             # the initialization is w and b
             param_init = np.hstack((param_init[0].flatten(), 
                                     param_init[1].flatten()))
+        # gradient cache
+        self._glocal = np.empty(param_init.shape)
+        self._g = np.empty(param_init.shape)
         # just to make sure every node is on the same page
         mpi.COMM.Bcast(param_init)
         return param_init
@@ -236,21 +245,19 @@ class SolverMC(Solver):
         # compute the loss function
         flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
                                    **solver._lossargs)
-        glocal = np.empty(wb.shape)
-        glocal[:K*dim] = mathutil.dot(solver._X.T, gpred).flat
-        glocal[K*dim:] = gpred.sum(axis=0)
+        mathutil.dot(solver._X.T, gpred, out = solver._glocal[:K*dim].reshape(dim, K))
+        solver._glocal[K*dim:] = gpred.sum(axis=0)
         
         # add regularization term, but keep in mind that we have multiple nodes
         freg, greg = solver.reg(w, **solver._regargs)
         flocal += solver._num_data * solver._gamma * freg / mpi.SIZE
-        glocal[:K*dim] += solver._num_data * solver._gamma / mpi.SIZE \
+        solver._glocal[:K*dim] += solver._num_data * solver._gamma / mpi.SIZE \
                           * greg.ravel()
         # do mpi reduction
         mpi.barrier()
         f = mpi.COMM.allreduce(flocal)
-        g = np.empty_like(glocal)
-        mpi.COMM.Allreduce(glocal,g)
-        return f, g
+        mpi.COMM.Allreduce(solver._glocal, solver._g)
+        return f, solver._g
 
 
 class Loss(object):
