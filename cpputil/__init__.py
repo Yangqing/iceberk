@@ -67,6 +67,8 @@ def fast_std_nompi(mat, axis, mean = None):
             or mat.dtype != np.float64 or mat.ndim != 2:
         raise TypeError, "Unsupported input matrix: %s %s\n%s" % \
                 (repr(mat.dtype), repr(mat.shape), repr(mat.flags), )
+    if axis != 0 and axis != 1:
+        raise ValueError, "Axis should either be 0 or 1."
     if mean is None or mean.dtype != np.float64:
         mean = np.mean(mat, axis)
     std = np.empty_like(mean)
