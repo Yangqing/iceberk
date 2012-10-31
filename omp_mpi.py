@@ -32,10 +32,59 @@ def omp1_predict(X, centroids):
     return idx, val
 
 
+def omp1_maximize(X, labels, val, k):
+    '''Learn the new OMP dictionary from the given activations
+
+    Input:
+        X: the data matrix, each row being a datum. Note that X is the
+            local data hosted in each MPI node.
+        labels: a vector of size X.shape[0], containing the indices of
+            the dictionary entry that is active, one for each datum.
+        val: a vector of size X.shape[0], the activation value of the 
+            corresponding entry
+        k: an int specifying the dictionary size.
+
+    Output:
+        centroids: a matrix of size [k, X.shape[1]] containing the new
+            dictionary.
+    '''
+    dim = X.shape[1]
+    centroids_local = np.zeros((k, dim))
+    centroids_local_nonempty = np.zeros(k, dtype = np.int)
+    # loop over the classes
+    for q in range(k):
+        center_mask = (labels == q)
+        if np.any(center_mask):
+            centroids_local[q] = np.dot(val[center_mask], X[center_mask])
+            centroids_local_nonempty[q] = 1
+    centroids_nonempty = np.zeros(k, dtype=np.int)
+    mpi.COMM.Allreduce(centroids_local_nonempty, centroids_nonempty)
+    # now, for those empty centroids, we need to randomly restart them
+    for q in range(k):
+        if centroids_nonempty[q] == 0 and mpi.is_president():
+            centroids_local[q] = X[np.random.randint(X.shape[0])]
+    # collect all centroids
+    centroids = np.zeros((k, dim))
+    mpi.COMM.Reduce(centroids_local, centroids)
+    centroids /= (np.sqrt(np.sum(centroids**2, axis=1)) \
+                  +np.finfo(np.float64).eps \
+                 )[:, np.newaxis]
+    # broadcast to remove any numerical unstability
+    mpi.COMM.Bcast(centroids)
+    return centroids
+
+
+
 def omp1(X, k, max_iter=100, tol=1e-4):
     '''omp1 training with MPI
     
-    Note that the X matrix passed should be the local data each node is hosting.
+    Input:
+        X: the data matrix, each row being a datum. Note that X is the
+            local data hosted in each MPI node.
+        k: an int specifying the dictionary size.
+        max_iter: (optional) the maximum number of iteration. Default 100.
+        tol: (optional) the tolerance threshold to determine convergence.
+            Default 1e-4.
     '''
     # vdata is used for testing convergence
     Nlocal = X.shape[0]
@@ -74,31 +123,4 @@ def omp1(X, k, max_iter=100, tol=1e-4):
         logging.debug("OMP reached the maximum number of iterations.")
     return centroids
 
-def omp1_maximize(X, labels, val, k):
-    '''
-    The MPI version of omp1_maximize
-    Note that X is the local data hosted in each MPI node.
-    '''
-    dim = X.shape[1]
-    centroids_local = np.zeros((k, dim))
-    centroids_local_nonempty = np.zeros(k, dtype = np.int)
-    # loop over the classes
-    for q in range(k):
-        center_mask = (labels == q)
-        if np.any(center_mask):
-            centroids_local[q] = np.dot(val[center_mask], X[center_mask])
-            centroids_local_nonempty[q] = 1
-    centroids_nonempty = np.zeros(k, dtype=np.int)
-    mpi.COMM.Allreduce(centroids_local_nonempty, centroids_nonempty)
-    # now, for those empty centroids, we need to randomly restart them
-    for q in range(k):
-        if centroids_nonempty[q] == 0 and mpi.is_president():
-            centroids_local[q] = X[np.random.randint(X.shape[0])]
-    # collect all centroids
-    centroids = np.zeros((k, dim))
-    mpi.COMM.Reduce(centroids_local, centroids)
-    centroids /= (np.sqrt(np.sum(centroids**2,axis=1))+np.finfo(np.float64).eps).reshape(k,1)
-    # broadcast to remove any numerical unstability
-    mpi.COMM.Bcast(centroids)
-    return centroids
 

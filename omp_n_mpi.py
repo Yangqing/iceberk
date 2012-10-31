@@ -10,13 +10,13 @@ import numpy as np
 # minibatch is used to avoid excessive memory consumption
 _MINIBATCH = 1000
 
-def omp_n_predict(X, centroids, num_active, reg = 1e-8):
+
+def omp_n_predict(X, centroids, num_active):
     ''' omp prediction
     Input:
         X: the data matrix
         centroids: the centroids matrix
         num_active: the number of active components
-        reg: the regularization term for least square, default 1e-8
     '''
     idx = np.empty((X.shape[0], num_active), dtype=np.int)
     val = np.zeros((X.shape[0], num_active))
@@ -38,18 +38,19 @@ def omp_n_predict(X, centroids, num_active, reg = 1e-8):
             idx[start:end, i] = np.argmax(dots_abs[:batchsize], axis=1)
             val[start:end, i] = dots[np.arange(batchsize), idx[start:end, i]]
             # remove the effect from dots
-            dots[:batchsize] -= C[idx[start:end,i]] * val[start:end,i][:, np.newaxis]
+            dots[:batchsize] -= C[idx[start:end, i]] * \
+                    val[start:end, i][:, np.newaxis]
     return idx, val
 
-def omp_n_maximize(X, centroids_old, labels, val, k):
-    '''Maximization of omp_n, with the given labels and vals using 
-        D = (A'A)^-1 A'X
+
+def omp_n_maximize(X, labels, val, k):
+    '''Maximization of omp_n, with the given labels and vals. 
     
     Note that X is the local data hosted in each MPI node.
     '''
     dim = X.shape[1]
     # G is the gram matrix of the activations
-    AtA_local = np.zeros((k,k))
+    AtA_local = np.zeros((k, k))
     AtX_local = np.zeros((k, dim))
     
     A = None
@@ -113,11 +114,11 @@ def omp_n(X, k, num_active, max_iter=100, tol=1e-4):
 
     timer = util.Timer()
     for iter_id in range(max_iter):
-        logging.debug("OMP-N iter %d, last iteration %s, elapsed %s" % \
-                      (iter_id, timer.lap(), timer.total()))
+        logging.debug("OMP-%d iter %d, last iteration %s, elapsed %s" % \
+                      (num_active, iter_id, timer.lap(), timer.total()))
         centroids_old = centroids.copy()
         labels, val = omp_n_predict(X, centroids, num_active)
-        centroids = omp_n_maximize(X, centroids_old, labels, val, k)
+        centroids = omp_n_maximize(X, labels, val, k)
         # check convergence on root
         if mpi.is_root():
             converged = np.sum((centroids_old - centroids) ** 2) < tol * vdata
@@ -125,10 +126,10 @@ def omp_n(X, k, num_active, max_iter=100, tol=1e-4):
             converged = None
         converged = mpi.COMM.bcast(converged)
         if converged:
-            logging.debug("OMP-N has converged.")
+            logging.debug("OMP has converged.")
             break
     else:
-        logging.debug("OMP-N reached the maximum number of iterations.")
+        logging.debug("OMP reached the maximum number of iterations.")
     return centroids
 
     
