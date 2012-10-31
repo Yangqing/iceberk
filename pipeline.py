@@ -382,7 +382,7 @@ class L2Normalizer(Normalizer):
         shape_old = image.shape
         shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
         image.resize(shape_temp)
-        length = cpputil.fast_std_nompi(image, 1, np.zeros(shape_temp[1]))
+        length = np.sqrt((image**2).sum(axis=1))
         length += self.specs.get('reg', np.finfo(np.float64).eps)
         image_out = image / length[:, np.newaxis]
         image.resize(shape_old)
