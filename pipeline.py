@@ -339,6 +339,37 @@ class MeanvarNormalizer(Normalizer):
         image_out.resize(shape_old)
         return image_out
 
+
+class SpatialMeanvarNormalizer(Normalizer):
+    """Normalizes the patches by subtracting the per-channel mean, and standard
+    deviation 1.
+    
+    Specs:
+        'reg': the regularization term added to the norm.
+        'channels': the number of channels for the patches.
+    """
+    def process(self, image):
+        """ normalizes the patches.
+        """
+        channels = self.specs['channels']
+        shape_old = image.shape
+        # first, subtract the mean
+        shape_temp = (np.prod(shape_old[:-1]), 
+                      shape_old[-1] / channels, channels)
+        image.resize(shape_temp)
+        m = image.mean(axis=1)
+        image_out = image - m[:,np.newaxis, :]
+        # then, do normalization
+        shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
+        image.resize(shape_temp)
+        std = cpputil.fast_std_nompi(image_out, 1, np.zeros(image.shape[0]))
+        std += self.specs.get('reg', np.finfo(np.float64).eps)
+        image_out /= std[:, np.newaxis]
+        image.resize(shape_old)
+        image_out.resize(shape_old)
+        return image_out
+
+
 class L2Normalizer(Normalizer):
     """Normalizes the patches so they lie on a unit ball.
     
