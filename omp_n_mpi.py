@@ -1,7 +1,9 @@
-""" orthogonal matching pursuit training and prediction code.
+"""The orthogonal matching pursuit training and prediction code. This is the 
+OMP-n version that finds n activations for each data point, instead of OMP-1 
+which could be carried out more efficiently with iceberk.omp_mpi.
 """
 
-from iceberk import mpi, mathutil
+from iceberk import mpi, mathutil, util
 import logging
 import numpy as np
 
@@ -62,12 +64,6 @@ def omp_n_maximize(X, centroids_old, labels, val, k):
             A[i, labels[start+i]] = val[start+i]
         AtA_local += mathutil.dot(A.T, A)
         AtX_local += mathutil.dot(A[:batchsize].T, X[start:end])
-    """
-    for i in range(X.shape[0]):
-        cpputil.submatrix_add(val[i][:, np.newaxis] * val[i], 
-                              labels[i], labels[i], AtA_local)
-        AtX_local[labels[i]] += val[i][:, np.newaxis] * X[labels[i]]
-    """
     AtA = np.empty_like(AtA_local)
     AtX = np.empty_like(AtX_local)
     mpi.COMM.Allreduce(AtA_local, AtA)
@@ -88,6 +84,15 @@ def omp_n_maximize(X, centroids_old, labels, val, k):
 
 def omp_n(X, k, num_active, max_iter=100, tol=1e-4):
     '''OMP training with MPI
+    
+    Input:
+        X: a num_data_local * dim numpy matrix containing the data, each row
+            being a datum.
+        k: the dictionary size.
+        num_active: the number of active dictionary entries for each datum
+        max_iter: (optional) the maximum number of iteration. Default 100.
+        tol: (optional) the tolerance threshold to determine convergence.
+            Default 1e-4.
     '''
     # vdata is used for testing convergence
     Nlocal = X.shape[0]
@@ -106,8 +111,10 @@ def omp_n(X, k, num_active, max_iter=100, tol=1e-4):
                 np.random.permutation(centroids_all.shape[0])[:k]]
     mpi.COMM.Bcast(centroids, root=0)
 
+    timer = util.Timer()
     for iter_id in range(max_iter):
-        logging.debug("OMPN iteration %d" % (iter_id,))
+        logging.debug("OMP-N iter %d, last iteration %s, elapsed %s" % \
+                      (iter_id, timer.lap(), timer.total()))
         centroids_old = centroids.copy()
         labels, val = omp_n_predict(X, centroids, num_active)
         centroids = omp_n_maximize(X, centroids_old, labels, val, k)
@@ -118,13 +125,12 @@ def omp_n(X, k, num_active, max_iter=100, tol=1e-4):
             converged = None
         converged = mpi.COMM.bcast(converged)
         if converged:
-            logging.debug("OMPN has converged.")
+            logging.debug("OMP-N has converged.")
             break
+    else:
+        logging.debug("OMP-N reached the maximum number of iterations.")
     return centroids
 
     
 if __name__ == "__main__":
     pass
-    ## do some test
-    #patches = np.load('cifar_patches_whitened.npy')
-    #dictionary = omp_n(patches, 400, 10, 10)
