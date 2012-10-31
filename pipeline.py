@@ -280,12 +280,10 @@ class PatchExtractor(Extractor):
         The returned image would be a 3-dimensional ndarray of size
             [new_height, new_width, psize[0] * psize[1] * num_channels]
         '''
+        image = np.atleast_3d(image)
         imheight = image.shape[0]
         imwidth = image.shape[1]
-        try:
-            num_channels = image.shape[2]
-        except IndexError:
-            num_channels = 1
+        num_channels = image.shape[2]
         stride = self.stride
         idxh = range(0,imheight-self.psize[0]+1,stride)
         idxw = range(0,imwidth-self.psize[1]+1,stride)

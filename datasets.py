@@ -29,6 +29,7 @@ class ImageSet(object):
         self._label = None
         self._dim = False
         self._channels = False
+        # we assume that the data is always prefetched
         self._prefetch = True
     
     def size(self):
