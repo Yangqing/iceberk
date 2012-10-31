@@ -325,6 +325,7 @@ class MeanvarNormalizer(Normalizer):
     def process(self, image):
         """ normalizes the patches.
         """
+        image = image.astype(np.float64)
         shape_old = image.shape
         shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
         image.resize(shape_temp)
@@ -349,6 +350,7 @@ class SpatialMeanvarNormalizer(Normalizer):
     def process(self, image):
         """ normalizes the patches.
         """
+        image = image.astype(np.float64)
         channels = self.specs['channels']
         shape_old = image.shape
         # first, subtract the mean
@@ -359,7 +361,7 @@ class SpatialMeanvarNormalizer(Normalizer):
         image_out = image - m[:,np.newaxis, :]
         # then, do normalization
         shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
-        image.resize(shape_temp)
+        image_out.resize(shape_temp)
         std = cpputil.fast_std_nompi(image_out, 1, np.zeros(image.shape[0]))
         std += self.specs.get('reg', np.finfo(np.float64).eps)
         image_out /= std[:, np.newaxis]

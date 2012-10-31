@@ -180,11 +180,7 @@ def load_matrix(filename):
     raw_data = np.load(filename, mmap_mode = 'r')
     total_size = raw_data.shape[0]
     segments = get_segments(total_size)
-    # memmap often causes strange bugs with MPI so we simply copy the data out 
-    # of the numpy mmap
-    data = np.empty((segments[RANK+1] - segments[RANK],) + raw_data.shape[1:],
-                    dtype = raw_data.dtype)
-    data[:] = raw_data[segments[RANK]:segments[RANK+1]]
+    data = np.ascontiguousarray(raw_data[segments[RANK]:segments[RANK+1]])
     barrier()
     return data
 
