@@ -5,12 +5,10 @@ width * height * nchannels numpy matrix, which is always preserved as a
 contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
-import ctypes as ct
-from iceberk import kmeans_mpi, mpi, omp_mpi, mathutil
-from iceberk import cpputil
+from iceberk import cpputil, mathutil, mpi
+from iceberk import kmeans_mpi, omp_mpi, omp_n_mpi
 import logging
 import numpy as np
-import os
 from PIL import Image
 from sklearn import metrics
 
@@ -484,8 +482,19 @@ class OMPTrainer(DictionaryTrainer):
                                 tol = self.specs.get('tol', 0.0001)
                                 )
         return centroid, ()
-        
-        
+
+class OMPNTrainer(DictionaryTrainer):
+    """Orthogonal Matching Pursuit with N activations instead of 
+    """
+    def train(self, incoming_patches):
+        centroid = omp_n_mpi.omp_n(incoming_patches,
+                                   self.specs['k'],
+                                   self.specs['num_active'],
+                                   max_iter = self.specs.get('max_iter', 100),
+                                   tol = self.specs.get('tol', 0.0001)
+                                  )
+        return centroid, ()
+
 class FeatureEncoder(Component):
     """The feature encoder.
     

@@ -127,5 +127,24 @@ void fastsumx2(const double* const data, // input data
     }
 }
 
+void submatrix_add(const double* const submatrix,
+                   const int* const row_index,
+                   const int* const col_index,
+                   const int nrows,
+                   const int ncols,
+                   const int nsubrows,
+                   const int nsubcols,
+                   double* const data)
+{
+    for (int i = 0; i < nsubrows; ++i) {
+        int row = row_index[i];
+        for (int j = 0; j < nsubcols; ++j) {
+            int col = col_index[j];
+            data[row * ncols + col] += submatrix[i * nsubcols + j];
+        }
+    }
+}
+	
+
 } // extern "C"
 

@@ -195,17 +195,24 @@ def dump_matrix_multi(mat, filename):
     my_filename = '%s-%05d-of-%05d.npy' % (filename, RANK, SIZE)
     np.save(my_filename, mat)
     
-def load_matrix_multi(filename):
+def load_matrix_multi(filename, N = None):
     """Loads the matrix previously dumped by dump_matrix_multi. The MPI size 
     might be different. The stored files are in the format
     filename-xxxxx-of-xxxxx, which we obtain using glob.
+    
+    Input:
+        N: (optional) if given, specify the number of parts the matrix is
+            separated too. Otherwise, the number is automatically inferred by
+            listing all the files using regexp matching.
     """
-    files= glob.glob('%s-?????-of-?????.npy' % (filename))
-    N = len(files)
+    if N is None:
+        # figure out the size
+        files= glob.glob('%s-?????-of-?????.npy' % (filename))
+        N = len(files)
     logging.debug("Loading the matrix from %d parts" % N)
     if N == SIZE:
         # we are lucky
-        mat = np.load('%s-%05d-of-%05d.npy' % (filename, RANK, SIZE))
+        mat = np.load('%s-%05d-of-%05d.npy' % (filename, RANK, N))
         return mat
     else:
         # we will load the length of the data, and then try to distribute them

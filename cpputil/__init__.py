@@ -106,3 +106,34 @@ def column_meanstd(mat):
     std /= num_data
     np.sqrt(std, out=std)
     return m, std
+
+################################################################################
+# fast submatrix operation
+################################################################################
+_FASTMATH.submatrix_add.restype = None
+_FASTMATH.submatrix_add.argtypes = [ct.POINTER(ct.c_double),
+                                    ct.POINTER(ct.c_int),
+                                    ct.POINTER(ct.c_int),
+                                    ct.c_int,
+                                    ct.c_int,
+                                    ct.c_int,
+                                    ct.c_int,
+                                    ct.POINTER(ct.c_double)]
+
+def submatrix_add(submat, rowid, colid, mat):
+    """Adds a submatrix to the original matrix by giving the row and column ids.
+    """
+    if submat.flags['C_CONTIGUOUS'] != True or submat.dtype != np.float64 \
+            or mat.flags['C_CONTIGUOUS'] != True or mat.dtype != np.float64:
+        raise ValueError, "Unsupported input matrix."
+    rowid = rowid.astype(ct.c_int)
+    colid = colid.astype(ct.c_int)
+    _FASTMATH.submatrix_add(submat.ctypes.data_as(ct.POINTER(ct.c_double)),
+                            rowid.ctypes.data_as(ct.POINTER(ct.c_int)),
+                            colid.ctypes.data_as(ct.POINTER(ct.c_int)),
+                            ct.c_int(mat.shape[0]),
+                            ct.c_int(mat.shape[1]),
+                            ct.c_int(rowid.size),
+                            ct.c_int(colid.size),
+                            mat.ctypes.data_as(ct.POINTER(ct.c_double))
+                            )
