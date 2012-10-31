@@ -1,7 +1,7 @@
 """ orthogonal matching pursuit training and prediction code.
 """
 
-from iceberk import mpi, mathutil, pipeline
+from iceberk import mpi, mathutil
 import logging
 import numpy as np
 
@@ -61,7 +61,7 @@ def omp_n_maximize(X, centroids_old, labels, val, k):
         for i in range(batchsize):
             A[i, labels[start+i]] = val[start+i]
         AtA_local += mathutil.dot(A.T, A)
-        AtX_local += mathutil.dot(A.T, X[start:end])
+        AtX_local += mathutil.dot(A[:batchsize].T, X[start:end])
     """
     for i in range(X.shape[0]):
         cpputil.submatrix_add(val[i][:, np.newaxis] * val[i], 
