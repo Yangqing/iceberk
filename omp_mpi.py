@@ -1,7 +1,7 @@
 """ orthogonal matching pursuit training and prediction code.
 """
 
-from iceberk import mpi, mathutil
+from iceberk import mpi, mathutil, util
 import logging
 import numpy as np
 
@@ -54,8 +54,10 @@ def omp1(X, k, max_iter=100, tol=1e-4):
                 np.random.permutation(centroids_all.shape[0])[:k]]
     mpi.COMM.Bcast(centroids, root=0)
 
+    timer = util.Timer()
     for iter_id in range(max_iter):
-        logging.debug("OMP iteration %d" % (iter_id,))
+        logging.debug("OMP iter %d, last iteration %s, elapsed %s" % \
+                      (iter_id, timer.lap(), timer.total()))
         centroids_old = centroids.copy()
         labels, val = omp1_predict(X, centroids)
         centroids = omp1_maximize(X, labels, val, k)
@@ -69,7 +71,7 @@ def omp1(X, k, max_iter=100, tol=1e-4):
             logging.debug("OMP has converged.")
             break
     else:
-        logging.debug("OMP has reached its maximum iteration.")
+        logging.debug("OMP reached the maximum number of iterations.")
     return centroids
 
 def omp1_maximize(X, labels, val, k):
