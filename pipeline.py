@@ -312,7 +312,19 @@ class Normalizer(Component):
         """ For normalizers, usually no training should be needed.
         """
         pass
-    
+
+
+class MeanNormalizer(Normalizer):
+    """Normalizes the patches to mean zero
+    """
+    def process(self, image):
+        """ normalizes the patches.
+        """
+        image = image.astype(np.float64)
+        m = image.mean(axis=-1).reshape(image.shape[:-1] + (1,))
+        image_out = image - m
+        return image_out
+
 
 class MeanvarNormalizer(Normalizer):
     """Normalizes the patches to mean zero and standard deviation 1
@@ -463,14 +475,27 @@ class KmeansTrainer(DictionaryTrainer):
         tol: the tolerance threshold before we stop iterating (default 1e-4)
     """
     def train(self, incoming_patches):
-        centroid, label, inertia = \
+        centroids, label, inertia = \
             kmeans_mpi.kmeans(incoming_patches, 
                               self.specs['k'],
                               n_init = self.specs.get('n_init', 1),
                               max_iter = self.specs.get('max_iter', 100),
                               tol = self.specs.get('tol', 0.0001))
-        return centroid, (label, inertia)
+        return centroids, (label, inertia)
 
+class NormalizedKmeansTrainer(KmeansTrainer):
+    """NormalKmeansTrainer Performs Kmeans training, but returns normalized
+    dictionary entries (i.e. each entry has length 1)
+    specs:
+        k: the number of kmeans centers
+        n_init: number of indepedent kmeans tries (default 1)
+        max_iter: the maximum mumber of kmeans iterations (default 100)
+        tol: the tolerance threshold before we stop iterating (default 1e-4)
+    """
+    def train(self, incoming_patches):
+        centroids, misc = KmeansTrainer.train(self, incoming_patches)
+        centroids /= np.sqrt((centroids**2).sum(1))[:, np.newaxis]
+        return centroids, misc
 
 class OMPTrainer(DictionaryTrainer):
     """Orthogonal Matching Pursuit
@@ -835,6 +860,15 @@ class KernelPooler(Pooler):
         G = (G + G[:, np.newaxis]) / (2. * sigma * sigma)
         np.exp(G, out = G)
         G /= G.sum()
+        return G
+    
+    @staticmethod
+    def kernel_uniform(size):
+        """ A uniform kernel of the given size
+        """
+        if type(size) is int:
+            size = (size, size)
+        G = np.ones(size) / np.prod(size)
         return G
 
 
