@@ -60,7 +60,7 @@ class TestMPI(unittest.TestCase):
             self.assertEqual(total_number, data.shape[0])
     
     def testDistributeList(self):
-        lengths = range(5)
+        lengths = range(1, 5)
         for length in lengths:
             source = range(length) * mpi.SIZE
             result = mpi.distribute_list(source)
@@ -93,6 +93,17 @@ class TestMPI(unittest.TestCase):
                                              'dumploadmulti',
                                              'multiple_files'))
         np.testing.assert_array_equal(data1, data2)
+    
+    def testGetSegments(self):
+        total = 100
+        segments, inv = mpi.get_segments(total, True)
+        self.assertEqual(len(segments), mpi.SIZE+1)
+        self.assertEqual(segments[0], 0)
+        self.assertEqual(segments[-1], total)
+        self.assertEqual(len(inv), total)
+        for i in range(total):
+            self.assertGreaterEqual(i, segments[inv[i]])
+            self.assertLess(i, segments[inv[i]+1])
 
 if __name__ == '__main__':
     unittest.main()

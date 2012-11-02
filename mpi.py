@@ -1,6 +1,7 @@
 ''' mpi implements common util functions based on mpi4py.
 '''
 
+import cPickle as pickle
 import glob
 import logging
 import numpy as np
@@ -21,6 +22,8 @@ except Exception, e:
             "even if you executed me with mpirun or mpiexec.\n")
     sys.stderr.write("We STRONGLY recommend you to try to install mpi and "\
                      "mpi4py.\n")
+    sys.stderr.write("mpi4py exception message is:")
+    sys.stderr.write(repr(Exception) + repr(e))
     from _mpi_dummy import COMM
 
 RANK = COMM.Get_rank()
@@ -28,9 +31,9 @@ SIZE = COMM.Get_size()
 _HOST_RAW = socket.gethostname()
 # this is the hack that removes things like ".icsi.berkeley.edu"
 if _HOST_RAW.find('.') == -1:
-    _HOST = _HOST_RAW
+    HOST = _HOST_RAW
 else:
-    _HOST = _HOST_RAW[:_HOST_RAW.find('.')]
+    HOST = _HOST_RAW[:_HOST_RAW.find('.')]
 _MPI_PRINT_MESSAGE_TAG = 560710
 
 # we need to set the random seed different for each mpi instance
@@ -92,10 +95,29 @@ def barrier(tag=0, sleep=0.01):
         mask <<= 1
         
 
-def get_segments(total):
-    """Get the segments for each local node
+def get_segments(total, inverse = False):
+    """Get the segments for each local node.
+    
+    Input:
+        inverse: (optional) if set True, also return the inverse index of each
+            element in 0:total.
+    Output:
+        segments: a list of size SIZE+1, where segments[i]:segments[i+1] 
+            specifies the range that the local node is responsible for.
+        inv: (only if inverse=True) a list of size total, where inv[i] is the
+            rank of the node that is responsible for element i.
     """
-    return [int(total * i / float(SIZE)) for i in range(SIZE+1)]
+    if total < SIZE:
+        raise ValueError, \
+                "The total number %d should be larger than the mpi size %d." % \
+                (total, SIZE)
+    segments = [int(total * i / float(SIZE)) for i in range(SIZE+1)]
+    if inverse:
+        inv = sum([[i] * (segments[i+1] - segments[i]) 
+                   for i in range(SIZE)], [])
+        return segments, inv
+    else:
+        return segments
     
 def distribute(mat):
     """Distributes the mat from root to individual nodes
@@ -136,8 +158,8 @@ def distribute_list(source):
     # quick check
     if SIZE == 1:
         return source
+    segments = get_segments(len(source))
     if is_root():
-        segments = get_segments(len(source))
         for i in range(1,SIZE):
             send_list = source[segments[i]:segments[i+1]]
             COMM.send(send_list, dest=i)
@@ -257,6 +279,9 @@ def load_matrix_multi(filename, N = None):
             f_start += size
         return mat
 
+def root_pickle(obj, filename):
+    if is_root():
+        pickle.dump(obj, open(filename, 'w'))
 
 if __name__ == "__main__":
     pass
