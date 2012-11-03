@@ -35,6 +35,7 @@ if _HOST_RAW.find('.') == -1:
 else:
     HOST = _HOST_RAW[:_HOST_RAW.find('.')]
 _MPI_PRINT_MESSAGE_TAG = 560710
+_MPI_BUFFER_LIMIT = 1073741824
 
 # we need to set the random seed different for each mpi instance
 random.seed(time.time() * RANK)
@@ -93,8 +94,41 @@ def barrier(tag=0, sleep=0.01):
         COMM.recv(None, src, tag) 
         req.Wait() 
         mask <<= 1
-        
 
+def safe_send_matrix(mat, dest=0, tag=0):
+    """A safe send that deals with the mpi4py 2GB limit. should be paired with
+    safe_recv_matrix. The input mat should be C_CONTIGUOUS. To be safe, we send
+    the matrix in 1GB chunks.
+    """
+    num_batches = int((mat.nbytes - 1) / _MPI_BUFFER_LIMIT + 1)
+    if num_batches == 1:
+        COMM.Send(mat, dest, tag)
+    else:
+        logging.debug("The buffer is larger than 1GB, sending in chunks...")
+        batch_size = int(mat.shape[0] / num_batches)
+        for i in range(num_batches):
+            COMM.Send(mat[batch_size*i:batch_size*(i+1)], dest, tag)
+        # send the remaining part
+        if mat.shape[0] > batch_size * num_batches:
+            COMM.Send(mat[batch_size * num_batches:], dest, tag)
+
+def safe_recv_matrix(mat, source=0, tag=0, status=None):
+    """A safe recv that deals with the mpi4py 2GB limit. should be paired with
+    safe_send_matrix. The input mat should be C_CONTIGUOUS. To be safe, we recv
+    the matrix in 1GB chunks.
+    """
+    num_batches = int((mat.nbytes - 1) / _MPI_BUFFER_LIMIT + 1)
+    if num_batches == 1:
+        COMM.Recv(mat, source, tag, status)
+    else:
+        logging.debug("The buffer is larger than 1GB, sending in chunks...")
+        batch_size = int(mat.shape[0] / num_batches)
+        for i in range(num_batches):
+            COMM.Recv(mat[batch_size*i:batch_size*(i+1)], source, tag, status)
+        # send the remaining part
+        if mat.shape[0] > batch_size * num_batches:
+            COMM.Recv(mat[batch_size * num_batches:], source, tag, status)
+            
 def get_segments(total, inverse = False):
     """Get the segments for each local node.
     
@@ -144,12 +178,12 @@ def distribute(mat):
             logging.warning('Warning: mat is not contiguous.')
             mat = np.ascontiguousarray(mat)
         for i in range(1,SIZE):
-            COMM.Send(mat[segments[i]:segments[i+1]], dest=i)
+            safe_send_matrix(mat[segments[i]:segments[i+1]], dest=i)
         data = mat[:segments[1]].copy()
     else:
         data = np.empty((segments[RANK+1] - segments[RANK],) + shape,
                         dtype = dtype)
-        COMM.Recv(data)
+        safe_recv_matrix(data)
     return data
 
 def distribute_list(source):
@@ -170,7 +204,11 @@ def distribute_list(source):
     return data
         
 def dump_matrix(mat, filename):
-    """Dumps the matrix distributed over machines to one single file
+    """Dumps the matrix distributed over machines to one single file.
+    
+    We do NOT recommend using this - it causes a lot of communications since
+    all data need to be transferred to root before writing to disk. Instead,
+    use dump_matrix_multi which stores the matrix to multiple chunks.
     """
     if SIZE == 1:
         with open(filename,'w') as fid:
@@ -184,12 +222,13 @@ def dump_matrix(mat, filename):
             start = mat_sizes[0]
             mat_reduced[:start] = mat
             for i in range(1,SIZE):
-                COMM.Recv(mat_reduced[start:start+mat_sizes[i]], source = i)
+                safe_recv_matrix(mat_reduced[start:start+mat_sizes[i]],
+                                 source = i)
                 start += mat_sizes[i]
             with open(filename,'w') as fid:
                 np.save(fid, mat_reduced)
         else:
-            COMM.Send(mat, dest = 0)
+            safe_send_matrix(mat, dest = 0)
         barrier()
 
 def load_matrix(filename):
