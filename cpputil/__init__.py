@@ -63,6 +63,7 @@ def fast_std_nompi(mat, axis, mean = None):
     passed in mean values, so if you want to compute the length of each vector,
     simply pass in an all-0 mean vector.
     """
+    raise NotImplementedError, "fastsumx2 large mem bug, need to be checked"
     if mat.flags['C_CONTIGUOUS'] != True \
             or mat.dtype != np.float64 or mat.ndim != 2:
         raise TypeError, "Unsupported input matrix: %s %s\n%s" % \
@@ -86,6 +87,7 @@ def column_meanstd(mat):
     """Computes the mean and std of the matrix, assuming that it is chopped
     along the rows and stored in a distributed fashion.
     """
+    raise NotImplementedError, "fastsumx2 large mem bug, need to be checked"
     if mat.flags['C_CONTIGUOUS'] != True \
             or mat.dtype != np.float64 or mat.ndim != 2:
         raise ValueError, "Unsupported input matrix."
