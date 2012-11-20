@@ -59,7 +59,7 @@ def feature_meanstd(mat, reg = None):
     mat -= m
     std_local = np.zeros_like(mat[0])
     std = np.zeros_like(std_local)
-    minibatch = 1000
+    minibatch = 5000
     for start in range(0, mat.shape[0], minibatch):
         end = min(mat.shape[0], start + minibatch)
         std_local += np.sum(mat[start:end]**2,axis=0)
@@ -140,7 +140,7 @@ class Solver(object):
         """The solve function
         """
         param_init = self.presolve(X, Y, weight, param_init)
-        logging.info('Solver: running lbfgs...')
+        logging.debug('Solver: running lbfgs...')
         result = _FMIN(self.__class__.obj, param_init, 
                        args=[self], **self._fminargs)
         return self.postsolve(result)
@@ -462,12 +462,14 @@ class Evaluator(object):
     def accuracy(Y, pred):
         """Computes the accuracy
         Input: 
-            Y, pred: two vectors containing discrete labels
-            If pred is a matrix instead of a vector, then argmax is used to get
-            the discrete label.
+            Y, pred: two vectors containing discrete labels. If either is a
+            matrix instead of a vector, then argmax is used to get the discrete
+            labels.
         """
         if pred.ndim == 2:
             pred = pred.argmax(axis=1)
+        if Y.ndim == 2:
+            Y = Y.argmax(axis=1)
         correct = mpi.COMM.allreduce((Y==pred).sum())
         num_data = mpi.COMM.allreduce(len(Y))
         return float(correct) / num_data
@@ -483,6 +485,8 @@ class Evaluator(object):
         """
         if pred.ndim == 2:
             pred = pred.argmax(axis=1)
+        if Y.ndim == 2:
+            Y = Y.argmax(axis=1)
         num_classes = Y.max() + 1
         table = np.zeros((num_classes, num_classes))
         for y, p in zip(Y, pred):
