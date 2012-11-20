@@ -95,6 +95,24 @@ def barrier(tag=0, sleep=0.01):
         req.Wait() 
         mask <<= 1
 
+def root_log_level(level, name = None):
+    """set the log level on root. 
+    Input:
+        level: the logging level, such as logging.DEBUG
+        name: (optional) the logger name
+    """
+    if is_root():
+        logging.getLogger(name).setLevel(level)
+
+def log_level(level, name = None):
+    """set the log level on all nodes. 
+    Input:
+        level: the logging level, such as logging.DEBUG
+        name: (optional) the logger name
+    """
+    logging.getLogger(name).setLevel(level)
+
+
 def safe_send_matrix(mat, dest=0, tag=0):
     """A safe send that deals with the mpi4py 2GB limit. should be paired with
     safe_recv_matrix. The input mat should be C_CONTIGUOUS. To be safe, we send
@@ -128,7 +146,7 @@ def safe_recv_matrix(mat, source=0, tag=0, status=None):
         # send the remaining part
         if mat.shape[0] > batch_size * num_batches:
             COMM.Recv(mat[batch_size * num_batches:], source, tag, status)
-            
+
 def get_segments(total, inverse = False):
     """Get the segments for each local node.
     
