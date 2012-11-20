@@ -162,7 +162,7 @@ class ReservoirSampler(object):
             return self._data
 
 def mpi_mean(data):
-    """An mpi implementation of the mean over different nodes.
+    """An mpi implementation of the mean over different nodes along axis 0
     """
     s_local = data.sum(0)
     m = np.empty_like(s_local)
@@ -171,8 +171,8 @@ def mpi_mean(data):
     m /= float(num_data)
     return m
 
-def mpi_std(data):
-    """An mpi implementation of the std over different nodes.
+def mpi_meanstd(data):
+    """An mpi implementation of the std over different nodes along axis 0
     """
     m = mpi_mean(data)
     data_centered = data - m
@@ -182,17 +182,29 @@ def mpi_std(data):
     mpi.COMM.Allreduce(std_local, std)
     num_data = mpi.COMM.allreduce(data.shape[0])
     std /= float(num_data)
-    return std
+    np.sqrt(std, out=std)
+    return m, std
 
-def mpi_cov(data):
+def mpi_std(data):
+    return mpi_meanstd(data)[1]
+
+def mpi_meancov(data, copydata = False):
     """An mpi implementation of the covariance matrix over different nodes
     """
     m = mpi_mean(data)
-    data_centered = data - m
-    cov_local = dot(data_centered.T, data_centered)
+    if copydata:
+        # copy the data and avoid numerical instability
+        data = data - m
+    else:
+        data -= m
+    cov_local = dot(data.T, data)
     covmat = np.empty_like(cov_local)
     mpi.COMM.Allreduce(cov_local, covmat)
     num_data = mpi.COMM.allreduce(data.shape[0])
     covmat /= float(num_data)
-    return covmat
+    if not copydata:
+        data += m
+    return m, covmat
 
+def mpi_cov(data, copydata = False):
+    return mpi_meancov(data, copydata)[1]
