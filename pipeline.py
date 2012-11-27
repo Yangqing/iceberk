@@ -930,36 +930,5 @@ class KernelPooler(Pooler):
         return G
 
 
-class WeightedPooler(Pooler):
-    """WeightedPooler does weighted sum (or rms) of the incoming image
-    """
-    def process(self, image):
-        image = np.atleast_3d(image)
-        height, width, channels = image.shape
-        maps = self.specs['maps']
-        num_maps = len(maps)
-        maps_rescaled = []
-        for i in range(num_maps):
-            weightmap = Image.fromarray(maps[i])
-            map_rescaled = np.asarray(weightmap.resize((height,width), \
-                                                       Image.BILINEAR) \
-                                     ).flatten()
-            map_rescaled /= map_rescaled.sum() + np.finfo(np.float64).eps
-            maps_rescaled.append(map_rescaled)
-        image = image.reshape((height*width, channels))
-        output = np.empty((num_maps, channels))
-        if self.specs['method'] == 'ave':
-            for i, weightmap in enumerate(maps_rescaled):
-                output[i] = (image * weightmap[:,np.newaxis]).sum(axis=0)
-        elif self.specs['method'] == 'rms':
-            image **= 2
-            for i, weightmap in enumerate(maps_rescaled):
-                output[i] = np.sqrt(
-                        (image * weightmap[:,np.newaxis]).sum(axis=0))
-        else:
-            raise ValueError, \
-                'The method %s cannot be recognized.' % (self.specs['method'])
-        return output
-        
 if __name__ == "__main__":
     print "It works!"

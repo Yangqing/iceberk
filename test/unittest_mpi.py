@@ -15,6 +15,8 @@ class TestMPI(unittest.TestCase):
 
     def testBasic(self):
         self.assertIsNotNone(mpi.COMM)
+        self.assertLess(mpi.RANK, mpi.SIZE)
+        self.assertIsInstance(mpi.HOST, str)
         
     def testMkdir(self):
         mpi.mkdir(_MPI_TEST_DIR)
@@ -34,7 +36,7 @@ class TestMPI(unittest.TestCase):
         self.assertEqual(len(set(all_results)), 1)
         num_presidents = mpi.COMM.allreduce(mpi.is_president())
         self.assertEqual(num_presidents, 1)
-        
+    
     def testIsRoot(self):
         if mpi.RANK == 0:
             self.assertTrue(mpi.is_root())
