@@ -44,36 +44,15 @@ def feature_meanstd(mat, reg = None):
         m:      the mean for each dimension
         std:    the standard deviation for each dimension
     
-    The implementation is actually moved to iceberk.cpputil now, we leave the
+    The implementation is actually moved to iceberk.mathutil now, we leave the
     code here just for backward compatibility
     '''
-    # Yangqing's note: the cpputil.column_meanstd has some nasty bugs that
-    # causes segfaults, so temporarily I am disabling it and using a numpy based
-    # std computation. since np.std copies the data, we will use minibatches to
-    # compute std
-    N= mpi.COMM.allreduce(mat.shape[0])
-    m = np.zeros_like(mat[0])
-    mpi.COMM.Allreduce(mat.sum(axis=0), m)
-    m /= N
-
-    mat -= m
-    std_local = np.zeros_like(mat[0])
-    std = np.zeros_like(std_local)
-    minibatch = 5000
-    for start in range(0, mat.shape[0], minibatch):
-        end = min(mat.shape[0], start + minibatch)
-        std_local += np.sum(mat[start:end]**2,axis=0)
-    mpi.COMM.Allreduce(std_local, std)
-    std /= N
-    std = np.sqrt(std)
-    mat += m
-    
-    # Here is the old buggy line
-    #m, std = cpputil.column_meanstd(mat)
+    m, std = mathutil.mpi_meanstd(mat)
 
     if reg is not None:
         std = np.sqrt(std**2 + reg)
     return m, std
+
 
 class Solver(object):
     '''

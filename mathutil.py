@@ -187,9 +187,25 @@ def mpi_meanstd(data):
     m = mpi_mean(data)
     # since we need to compute the square, we cannot do in-place subtraction
     # and addition.
-    data_centered = data - m
-    data_centered **= 2
-    std_local = data_centered.sum(0)
+    try:
+        data_centered = data - m
+        data_centered **= 2
+        std_local = data_centered.sum(0)
+        std_local_computed = 1
+    except MemoryError:
+        std_local_computed = 0
+    # let's check if some nodes did not have enough memory
+    if mpi.COMM.allreduce(std_local_computed) < mpi.SIZE:
+        # we need to compute the std_local in a batch-based way
+        std_local = np.zeros_like(data[0])
+        # we try to get a reasonable minibatch size
+        minibatch = max(int(data.shape[0] / 10), 1)
+        data_batch = np.empty_like(data[:minibatch])
+        for start in range(0, data.shape[0], minibatch):
+            end = min(data.shape[0], start + minibatch)
+            data_batch[:end-start] = data[start:end] - m
+            data_batch **= 2
+            std_local += data_batch.sum(axis=0)
     std = np.empty_like(std_local)
     mpi.COMM.Allreduce(std_local, std)
     num_data = mpi.COMM.allreduce(data.shape[0])
