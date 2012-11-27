@@ -29,6 +29,7 @@ def omp1_predict(X, centroids):
         np.abs(dots, out=dots)
         idx[start:end] = np.argmax(dots[:batchsize], axis=1)
         val[start:end] = dots[range(batchsize), idx[start:end]]
+    mpi.barrier()
     return idx, val
 
 
@@ -58,6 +59,7 @@ def omp1_maximize(X, labels, val, k):
             centroids_local[q] = np.dot(val[center_mask], X[center_mask])
             centroids_local_nonempty[q] = 1
     centroids_nonempty = np.zeros(k, dtype=np.int)
+    mpi.barrier()
     mpi.COMM.Allreduce(centroids_local_nonempty, centroids_nonempty)
     # now, for those empty centroids, we need to randomly restart them
     for q in range(k):

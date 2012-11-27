@@ -60,7 +60,14 @@ def kmeans(X, k, n_init=1, max_iter=300, tol=1e-4):
     # vdata helps the stop criterion
     vdata = mpi.COMM.allreduce(np.mean(np.var(X, 0))) / mpi.SIZE
     best_inertia = np.infty
+    
+    if k <= 0:
+        raise ValueError, "The number of centers (%d) should be positive." % k
+    if mpi.COMM.allreduce(X.shape[0], op=mpi.MPI.MIN) == 0:
+        raise RuntimeError, "Some nodes has zero data."
 
+    logging.debug("Kmeans: A total of %d data points." % \
+                  mpi.COMM.allreduce(X.shape[0]))
     # pre-compute squared norms of data points
     x_squared_norms = (X**2).sum(axis=1)
     for init_count in range(n_init):

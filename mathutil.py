@@ -172,7 +172,7 @@ class ReservoirSampler(object):
 ###############################################################################
 
 def mpi_mean(data):
-    """An mpi implementation of the mean over different nodes.
+    """An mpi implementation of the mean over different nodes along axis 0
     """
     s_local = data.sum(0)
     m = np.empty_like(s_local)
@@ -181,11 +181,10 @@ def mpi_mean(data):
     m /= float(num_data)
     return m
 
-def mpi_std(data, m = None):
-    """An mpi implementation of the std over different nodes.
+def mpi_meanstd(data):
+    """An mpi implementation of the std over different nodes along axis 0
     """
-    if m is None:
-        m = mpi_mean(data)
+    m = mpi_mean(data)
     # since we need to compute the square, we cannot do in-place subtraction
     # and addition.
     data_centered = data - m
@@ -195,32 +194,29 @@ def mpi_std(data, m = None):
     mpi.COMM.Allreduce(std_local, std)
     num_data = mpi.COMM.allreduce(data.shape[0])
     std /= float(num_data)
-    return std
-
-def mpi_meanstd(data):
-    """A wrapper for both the mean and std. See mpi_mean and mpi_std for details
-    """
-    m = mpi_mean(data)
-    std = mpi_std(data, m = m)
+    np.sqrt(std, out=std)
     return m, std
 
-def mpi_cov(data, m = None):
+def mpi_std(data):
+    return mpi_meanstd(data)[1]
+
+def mpi_meancov(data, copydata = False):
     """An mpi implementation of the covariance matrix over different nodes
     """
-    if m is None:
-        m = mpi_mean(data)
-    data -= m
+    m = mpi_mean(data)
+    if copydata:
+        # copy the data and avoid numerical instability
+        data = data - m
+    else:
+        data -= m
     cov_local = dot(data.T, data)
     covmat = np.empty_like(cov_local)
     mpi.COMM.Allreduce(cov_local, covmat)
     num_data = mpi.COMM.allreduce(data.shape[0])
     covmat /= float(num_data)
-    data += m
-    return covmat
-
-def mpi_meancov(data):
-    """A wrapper for both the mean and cov. See mpi_mean and mpi_std for details
-    """
-    m = mpi_mean(data)
-    covmat = mpi_cov(data, m = m)
+    if not copydata:
+        data += m
     return m, covmat
+
+def mpi_cov(data, copydata = False):
+    return mpi_meancov(data, copydata)[1]

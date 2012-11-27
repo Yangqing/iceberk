@@ -30,7 +30,7 @@ class PatchVisualizer:
         pyplot.imshow(patch, cmap = cmap)
         return patch
     
-    def show_multiple(self, patches, bg_func = np.mean):
+    def show_multiple(self, patches, ncols = None, bg_func = np.mean):
         """Visualize multiple patches. In the passed in patches matrix, each row
         is a patch, in the shape of either n*n or n*n*3, either in a flattened
         format (so patches would be an 2-D array), or a multi-dimensional tensor
@@ -38,12 +38,14 @@ class PatchVisualizer:
         out automatically the patch size.
         """
         num_patches = patches.shape[0]
-        num_patches_per_edge = int(np.ceil(np.sqrt(num_patches)))
+        if ncols is None:
+            ncols = int(np.ceil(np.sqrt(num_patches)))
+        nrows = int(np.ceil(num_patches / float(ncols)))
         if len(patches.shape) == 2:
             patches = patches.reshape((patches.shape[0],) + 
                                   self.get_patch_shape(patches[0]))
         patch_size_expand = np.array(patches.shape[1:3]) + self.gap
-        image_size = patch_size_expand * num_patches_per_edge - self.gap
+        image_size = patch_size_expand * np.array([nrows, ncols]) - self.gap
         if len(patches.shape) == 4:
             if patches.shape[3] != 3:
                 raise ValueError, "The input patch shape isn't correct."
@@ -55,8 +57,8 @@ class PatchVisualizer:
             cmap = cm.gray
         image = np.ones(image_shape) * bg_func(patches)
         for pid in range(num_patches):
-            row = pid / num_patches_per_edge * patch_size_expand[0]
-            col = pid % num_patches_per_edge * patch_size_expand[1]
+            row = pid / ncols * patch_size_expand[0]
+            col = pid % ncols * patch_size_expand[1]
             image[row:row+patches.shape[1], col:col+patches.shape[2]] = \
                     patches[pid]
         # normalize the patches for better viewing results

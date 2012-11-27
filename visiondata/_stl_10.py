@@ -7,6 +7,7 @@ from iceberk import datasets, mpi
 import numpy as np
 import os
 from scipy import io
+import skimage.transform
 
 class STL10Dataset(datasets.ImageSet):
     """The STL-10 dataset
@@ -15,7 +16,7 @@ class STL10Dataset(datasets.ImageSet):
     _image_dim = (96, 96, 3)
     _num_channels = 3
     
-    def __init__(self, root, mode, is_gray = False):
+    def __init__(self, root, mode, is_gray = False, target_size = None):
         """Loads the STL dataset. mode should be either 'train', 'test', or 
         'unlabeled'
         """
@@ -44,7 +45,19 @@ class STL10Dataset(datasets.ImageSet):
         else:
             self._dim = STL10Dataset._image_dim
             self._channels = STL10Dataset._num_channels
-
+            
+        if target_size is not None:
+            # we often want to resize the STL dataset to some other sizes
+            if type(target_size) is not int:
+                raise TypeError, "The input target_size should be an int!"
+            self._dim = (target_size, target_size)
+            old_data = self._data
+            new_size = np.asarray(self._data.shape)
+            new_size[1:3] = target_size
+            self._data = np.empty(new_size)
+            for i in range(self._data.shape[0]):
+                self._data[i] = skimage.transform.resize(old_data[i],
+                        (target_size, target_size), mode='nearest')
         self._prefetch = True
     
     @staticmethod

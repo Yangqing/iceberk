@@ -5,7 +5,7 @@ nchannels numpy matrix of np.float64, , which is always preserved as a
 contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
-from iceberk import cpputil, mathutil, mpi
+from iceberk import cpputil, mathutil, mpi, util
 from iceberk import kmeans_mpi, omp_mpi, omp_n_mpi
 import logging
 import numpy as np
@@ -135,6 +135,7 @@ class ConvLayer(list):
         """
         total = dataset.size_total()
         logging.debug("Processing a total of %s images" % (total,))
+        timer = util.Timer()
         if as_list:
             data = [self.process(dataset.image(i)) for i in range(dataset.size())]
         else:
@@ -145,8 +146,8 @@ class ConvLayer(list):
             data[0] = temp
             for i in range(1,dataset.size()):
                 data[i] = self.process(dataset.image(i), as_vector = as_2d)
-        logging.debug("I am done, waiting for others to finish...")
         mpi.barrier()
+        logging.debug("Feature extration took %s" % timer.total())
         return data
     
     def sample(self, dataset, num_patches,
@@ -243,44 +244,48 @@ class PatchExtractor(Extractor):
             self.psize = psize
         self.stride = stride
     
-# The old sample function. We implemented a new sample function in Extractor
-# which is more general but probably less efficient.
-#    def sample(self, dataset, num_patches):
-#        """ randomly sample num_patches from the dataset.
-#        
-#        The returned patches would be a 2-dimensional ndarray of size
-#            [num_patches, psize[0] * psize[1] * num_channels]
-#        """
-#        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
-#        imids = np.random.randint(dataset.size(), size=num_patches)
-#        # sort the ids so we don't need to re-read images when sampling
-#        imids.sort()
-#        patches = np.empty((num_patches, 
-#                            self.psize[0] * 
-#                            self.psize[1] * 
-#                            dataset.num_channels()))
-#        current_im = -1
-#        if dataset.dim() is not None:
-#            # all images have the same dim, making random sampling easier
-#            dim = dataset.dim()
-#            rowids = np.random.randint(dim[0]-self.psize[0], size=num_patches)
-#            colids = np.random.randint(dim[1]-self.psize[1], size=num_patches)
-#            precomputed = True  
-#        else:
-#            precomputed = False
-#        for i in range(num_patches):
-#            if imids[i] != current_im:
-#                im = dataset.image(imids[i])
-#                current_im = imids[i]
-#            if not precomputed:
-#                rowid = np.random.randint(im.shape[0]-self.psize[0])
-#                colid = np.random.randint(im.shape[1]-self.psize[1])
-#            else:
-#                rowid = rowids[i]
-#                colid = colids[i]
-#            patches[i] = im[rowid:rowid+self.psize[0], \
-#                            colid:colid+self.psize[1]].flat
-#        return patches
+    def sample(self, dataset, num_patches, previous_layer = None,
+               exhaustive = False, ratio_per_image = 0.1):
+        """ randomly sample num_patches from the dataset.
+        
+        The returned patches would be a 2-dimensional ndarray of size
+            [num_patches, psize[0] * psize[1] * num_channels]
+        """
+        if previous_layer is not None:
+            return Extractor.sample(self, dataset, num_patches,
+                                    previous_layer, exhaustive, ratio_per_image)
+        # if there is no previous layer, we have a more efficient method to
+        # perform sampling.
+        num_patches = np.maximum(int(num_patches / float(mpi.SIZE) + 0.5), 1)
+        imids = np.random.randint(dataset.size(), size=num_patches)
+        # sort the ids so we don't need to re-read images when sampling
+        imids.sort()
+        patches = np.empty((num_patches, 
+                            self.psize[0] * 
+                            self.psize[1] * 
+                            dataset.num_channels()))
+        current_im = -1
+        if dataset.dim() is not None:
+            # all images have the same dim, making random sampling easier
+            dim = dataset.dim()
+            rowids = np.random.randint(dim[0]-self.psize[0], size=num_patches)
+            colids = np.random.randint(dim[1]-self.psize[1], size=num_patches)
+            precomputed = True  
+        else:
+            precomputed = False
+        for i in range(num_patches):
+            if imids[i] != current_im:
+                im = dataset.image(imids[i])
+                current_im = imids[i]
+            if not precomputed:
+                rowid = np.random.randint(im.shape[0]-self.psize[0])
+                colid = np.random.randint(im.shape[1]-self.psize[1])
+            else:
+                rowid = rowids[i]
+                colid = colids[i]
+            patches[i] = im[rowid:rowid+self.psize[0], \
+                            colid:colid+self.psize[1]].flat
+        return patches
         
     def process(self, image):
         '''process an image
@@ -348,10 +353,32 @@ class MeanvarNormalizer(Normalizer):
         shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
         image.resize(shape_temp)
         m = image.mean(axis=1)
-        std = cpputil.fast_std_nompi(image, 1, m)
+        std = image.std(axis=1)
         std += self.specs.get('reg', np.finfo(np.float64).eps)
         image_out = image - m[:, np.newaxis]
         image_out /= std[:, np.newaxis]
+        image.resize(shape_old)
+        image_out.resize(shape_old)
+        return image_out
+
+class SpatialMeanNormalizer(Normalizer):
+    """Normalizes the patches by subtracting the per-channel mean.
+    
+    Specs:
+        'channels': the number of channels for the patches.
+    """
+    def process(self, image):
+        """ normalizes the patches.
+        """
+        image = image.astype(np.float64)
+        channels = self.specs['channels']
+        shape_old = image.shape
+        # first, subtract the mean
+        shape_temp = (np.prod(shape_old[:-1]), 
+                      shape_old[-1] / channels, channels)
+        image.resize(shape_temp)
+        m = image.mean(axis=1)
+        image_out = image - m[:,np.newaxis, :]
         image.resize(shape_old)
         image_out.resize(shape_old)
         return image_out
@@ -380,9 +407,9 @@ class SpatialMeanvarNormalizer(Normalizer):
         # then, do normalization
         shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
         image_out.resize(shape_temp)
-        std = cpputil.fast_std_nompi(image_out, 1, np.zeros(image.shape[0]))
-        std += self.specs.get('reg', np.finfo(np.float64).eps)
-        image_out /= std[:, np.newaxis]
+        length = (image_out**2).sum(1)
+        length += self.specs.get('reg', np.finfo(np.float64).eps)
+        image_out /= length[:, np.newaxis]
         image.resize(shape_old)
         image_out.resize(shape_old)
         return image_out
@@ -450,12 +477,9 @@ class PcaTrainer(DictionaryTrainer):
     """Performs PCA training
     """
     def train(self, incoming_patches):
-        size = mpi.COMM.allreduce(incoming_patches.shape[0])
-        b = - mpi.COMM.allreduce(np.sum(incoming_patches,axis=0)) / size
-        # remove the mean from data
-        patches = incoming_patches + b
-        covmat = mpi.COMM.allreduce(mathutil.dot(patches.T, patches)) / size
-        if mpi.RANK == 0:
+        m, covmat = mathutil.mpi_meancov(incoming_patches)
+        if mpi.is_root():
+            # only root carries out the computation
             eigval, eigvec = np.linalg.eigh(covmat)
             reg = self.specs.get('reg', np.finfo(np.float64).eps)
             W = eigvec * 1.0 / (np.sqrt(np.maximum(eigval, 0.0)) + reg)
@@ -464,15 +488,16 @@ class PcaTrainer(DictionaryTrainer):
         W = mpi.COMM.bcast(W)
         eigval = mpi.COMM.bcast(eigval)
         eigvec = mpi.COMM.bcast(eigvec)
-        return (W, b), (eigval, eigvec)
+        return (W, -m), (eigval, eigvec, covmat)
 
 class ZcaTrainer(PcaTrainer):
     """Performs ZCA training
     """
     def train(self, incoming_patches):
-        (W, b), (eigval, eigvec) = PcaTrainer.train(self, incoming_patches)
+        (W, b), (eigval, eigvec, covmat) = PcaTrainer.train(self, incoming_patches)
         W = np.dot(W, eigvec.T)
-        return (W, b), (eigval, eigvec)
+        return (W, b), (eigval, eigvec, covmat)
+
 
 class KmeansTrainer(DictionaryTrainer):
     """KmeansTrainer Performs Kmeans training
@@ -608,9 +633,10 @@ class ThresholdEncoder(FeatureEncoder):
             temp[:,:N] = output
             temp[:,N:] = -output
             output = temp.reshape(imshape + (N*2,))
-        else:
-            # otherwise, we will take the absolute value
+        elif self.specs['twoside'] == 'abs':
             np.abs(output, out=output)
+        else:
+            pass
         output -= alpha
         np.clip(output, 0., np.inf, out=output)
         return output
@@ -794,30 +820,67 @@ class FixedSizePooler(Pooler):
 
 class KernelPooler(Pooler):
     """KernelPooler is similar to SpatialPooler but uses a kernel to weight
-    different locations
+    different locations, and can also apply more complex feature transforms
+    such as second order pooling on the data.
     
     specs:
         kernel: a 2D numpy array, non-negative
         stride: the stride with which this kernel should be carried out
         method: 'ave' or 'rms'. You can also use 'max' which finds the max value
-            after the weighting, but I feel that it's not very well-defined.
+            after the weighting, but I feel that it's not very well-defined. You
+            can also pass in an object that carries out more complex feature
+            computations, in which case the object should have two functions,
+            method.dim(x) that returns the output dimension based on the input
+            dimension, and method.pool(X, output) that processes pooling and puts
+            the result in the vector output.
     """
     def __init__(self, specs):
         Pooler.__init__(self, specs)
-        # normalize the kernel
-        kernel = self.specs['kernel']
-        np.clip(kernel, 0, np.inf, out=kernel)
-        s = kernel.sum()
-        if s <= 0:
-            raise ValueError, "The kernel does not seem to be right"
-        kernel /= s
+        # we disabled the kernel normalization part: you are responsible of
+        # making sure that the kernel is right.
+        #kernel = self.specs['kernel']
+        #np.clip(kernel, 0, np.inf, out=kernel)
+        #s = kernel.sum()
+        #if s <= 0:
+        #    raise ValueError, "The kernel does not seem to be right"
+        #kernel /= s
         stride = self.specs['stride']
         if type(stride) is int:
             self.specs['stride'] = (stride, stride)
         self.specs['stride'] = np.asarray(self.specs['stride'], dtype=int)
-        method = self.specs['method']
+    
+    @staticmethod
+    def max(X, out):
+        return np.max(X, axis=0, out=out)
+    
+    @staticmethod
+    def ave(X, out):
+        return np.mean(X, axis=0, out=out)
+    
+    @staticmethod
+    def rms(X, out):
+        # note that we will destroy X in the process
+        X **= 2
+        out = np.mean(X, axis=0, out=out)
+        np.sqrt(out, out=out)
+        return out
     
     def process(self, image):
+        method = self.specs['method']
+        # if method is not pre-defined, it should be an object that can be
+        # called to execute the function.
+        # convert the default methods to functions
+        output_dim = image.shape[-1]
+        if method == 'max':
+            pool = KernelPooler.max
+        elif method == 'ave':
+            pool = KernelPooler.ave
+        elif method == 'rms':
+            pool = KernelPooler.rms
+        else:
+            # get the pooler and the dimension
+            pool = method.pool
+            output_dim = method.dim(output_dim)
         image_size = np.asarray(image.shape[:2])
         kernel = self.specs['kernel']
         kernel_size = np.asarray(kernel.shape, dtype=int)
@@ -825,31 +888,19 @@ class KernelPooler(Pooler):
         grid = ((image_size - kernel_size) / stride).astype(int)
         pool_size = grid * stride + kernel_size
         offset = ((image_size - pool_size) / 2).astype(int)
-        output = np.zeros((grid[0], grid[1], image.shape[2]))
-        cache = np.zeros((kernel_size[0], kernel_size[1], image.shape[2]))
+        output = np.zeros((grid[0], grid[1], output_dim))
+        cache = np.zeros((kernel_size[0], kernel_size[1], output_dim))
         cache_2d = cache.view()
-        cache_2d.shape = (kernel_size[0] * kernel_size[1], image.shape[2])
-        if self.specs['method'] == 'max':
-            for i in range(grid[0]):
-                for j in range(grid[1]):
-                    topleft = offset + stride * (i,j)
-                    bottomright = topleft + kernel_size
-                    cache[:] = image[topleft[0]:bottomright[0], 
-                                     topleft[1]:bottomright[1]]
-                    cache *= kernel[:, :, np.newaxis]
-                    output[i,j] = cache_2d.max(axis=0)
-        else:
-            if self.specs['method'] == 'rms':
-                image = image.astype(np.float64) ** 2
-            for i in range(grid[0]):
-                for j in range(grid[1]):
-                    topleft = offset + stride * (i,j)
-                    bottomright = topleft + kernel_size
-                    cache[:] = image[topleft[0]:bottomright[0], 
-                                     topleft[1]:bottomright[1]]
-                    output[i,j] = np.dot(kernel.flat, cache_2d)
-            if self.specs['method'] == 'rms':
-                np.sqrt(output, out=output)
+        cache_2d.shape = (kernel_size[0] * kernel_size[1], output_dim)
+        # for max, rms and average pooling, we have faster methods to do it
+        for i in range(grid[0]):
+            for j in range(grid[1]):
+                topleft = offset + stride * (i,j)
+                bottomright = topleft + kernel_size
+                cache[:] = image[topleft[0]:bottomright[0], 
+                                 topleft[1]:bottomright[1]]
+                cache *= kernel[:, :, np.newaxis]
+                pool(cache_2d, output[i,j])
         return output
     
     @staticmethod
@@ -867,7 +918,6 @@ class KernelPooler(Pooler):
         G = - np.arange(-k, k+1)**2
         G = (G + G[:, np.newaxis]) / (2. * sigma * sigma)
         np.exp(G, out = G)
-        G /= G.sum()
         return G
     
     @staticmethod
@@ -876,7 +926,7 @@ class KernelPooler(Pooler):
         """
         if type(size) is int:
             size = (size, size)
-        G = np.ones(size) / np.prod(size)
+        G = np.ones(size)
         return G
 
 

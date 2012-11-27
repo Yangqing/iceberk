@@ -160,6 +160,63 @@ class MirrorSet(ImageSet):
         """
         return self._original.num_channels()
 
+class ResizeSet(ImageSet):
+    def __init__(self, original_set, target_size, interp = 'bilinear'):
+        """Create a mirrored dataset from the original data set. The original
+        set should always contain images - i.e. they have to be either grayscale
+        images or color images.
+        Input:
+            original_set: the original dataset
+            target_size: if float, resize each image according to scale. if a
+                tuple of 2 ints, resize each image to this fixed size.
+        """
+        super(ResizeSet, self).__init__()
+        self._original = original_set
+        self._target_size = target_size
+        self._interp = interp
+        # decide the dimension
+        if type(self._target_size) is not float:
+            self._dim = self._target_size
+        elif self._original.dim() != False:
+            self._dim = self.image(0).shape[:2]
+        else:
+            self._dim = False
+
+    def size(self):
+        """Return the size of the dataset hosted on the current node
+        """
+        return self._original.size()
+
+    def image(self, idx):
+        """ Returns datum 
+        
+        Note that you should almost never use data that is hosted on other
+        nodes - every node should deal with its data only.
+        """
+        return misc.imresize(self._original.image(idx),
+                             self._target_size,
+                             self._interp)
+
+    def label(self, idx):
+        """ Returns the label for the corresponding datum
+        """
+        return self._original.label(idx)
+
+    def labels(self):
+        """ Returns the label vector for all the data I am hosting
+        """
+        return self._original.labels()
+    
+    def dim(self):
+        """Returns the dimension of the data if they have the same dimension
+        Otherwise, return False
+        """
+        return self._dim
+
+    def num_channels(self):
+        """ Returns the number of channels
+        """
+        return self._original.num_channels()
 
 class TwoLayerDataset(ImageSet):
     """Builds a dataset composed of two-layer storage structures similar to
