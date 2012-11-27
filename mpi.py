@@ -49,13 +49,15 @@ def mkdir(dirname):
         pass
     except:
         raise
-    
+
+
 def agree(decision):
     """agree() makes the decision consistent by propagating the decision of the
     root to everyone
     """
     return COMM.bcast(decision)
-    
+
+
 def elect():
     '''elect() randomly chooses a node from all the nodes as the president.
     Input:
@@ -66,15 +68,18 @@ def elect():
     president = COMM.bcast(np.random.randint(SIZE))
     return president
 
+
 def is_president():
-    '''
+    ''' Returns true if I am the president, otherwise return false
     '''
     return (RANK == elect())
+
 
 def is_root():
     '''returns if the current node is root
     '''
     return RANK == 0
+
 
 def barrier(tag=0, sleep=0.01):
     ''' A better mpi barrier
@@ -95,6 +100,7 @@ def barrier(tag=0, sleep=0.01):
         req.Wait() 
         mask <<= 1
 
+
 def root_log_level(level, name = None):
     """set the log level on root. 
     Input:
@@ -103,6 +109,7 @@ def root_log_level(level, name = None):
     """
     if is_root():
         logging.getLogger(name).setLevel(level)
+
 
 def log_level(level, name = None):
     """set the log level on all nodes. 
@@ -130,6 +137,7 @@ def safe_send_matrix(mat, dest=0, tag=0):
         if mat.shape[0] > batch_size * num_batches:
             COMM.Send(mat[batch_size * num_batches:], dest, tag)
 
+
 def safe_recv_matrix(mat, source=0, tag=0, status=None):
     """A safe recv that deals with the mpi4py 2GB limit. should be paired with
     safe_send_matrix. The input mat should be C_CONTIGUOUS. To be safe, we recv
@@ -146,6 +154,7 @@ def safe_recv_matrix(mat, source=0, tag=0, status=None):
         # send the remaining part
         if mat.shape[0] > batch_size * num_batches:
             COMM.Recv(mat[batch_size * num_batches:], source, tag, status)
+
 
 def get_segments(total, inverse = False):
     """Get the segments for each local node.
@@ -170,7 +179,8 @@ def get_segments(total, inverse = False):
         return segments, inv
     else:
         return segments
-    
+
+
 def distribute(mat):
     """Distributes the mat from root to individual nodes
     
@@ -204,6 +214,7 @@ def distribute(mat):
         safe_recv_matrix(data)
     return data
 
+
 def distribute_list(source):
     """Distributes the list from root to individual nodes
     """
@@ -220,7 +231,8 @@ def distribute_list(source):
     else:
         data = COMM.recv()
     return data
-        
+
+
 def dump_matrix(mat, filename):
     """Dumps the matrix distributed over machines to one single file.
     
@@ -249,6 +261,7 @@ def dump_matrix(mat, filename):
             safe_send_matrix(mat, dest = 0)
         barrier()
 
+
 def load_matrix(filename):
     """Load a matrix from a single matrix, and distribute it to each node
     numpy supports memmap so each node will simply load its own part
@@ -263,6 +276,7 @@ def load_matrix(filename):
     barrier()
     return data
 
+
 def dump_matrix_multi(mat, filename):
     """Dumps the matrix distributed over machines to multiple files, one per
     MPI node.
@@ -273,7 +287,8 @@ def dump_matrix_multi(mat, filename):
     logging.debug("Dumping the matrix to %d parts" % SIZE)
     my_filename = '%s-%05d-of-%05d.npy' % (filename, RANK, SIZE)
     np.save(my_filename, mat)
-    
+
+
 def load_matrix_multi(filename, N = None):
     """Loads the matrix previously dumped by dump_matrix_multi. The MPI size 
     might be different. The stored files are in the format
@@ -335,6 +350,7 @@ def load_matrix_multi(filename, N = None):
                                  min(my_end - f_start, size)]
             f_start += size
         return mat
+
 
 def root_pickle(obj, filename):
     if is_root():
