@@ -1,7 +1,7 @@
 """Yangqing's refactoring of the CVPR'12 algorithm
 
-In this program we will represent any image (and encoded tensors) with a 
-width * height * nchannels numpy matrix, which is always preserved as a
+In this program we will represent any general "image" with a width * height * 
+nchannels numpy matrix of np.float64, , which is always preserved as a
 contiguous array in C-order so we can more efficiently solve most of the
 problems.
 """
@@ -19,6 +19,14 @@ try:
 except ImportError:
     logging.warning('Cannot find bottleneck, using numpy as backup.')
     bn = None
+
+def CHECK_IMAGE(img):
+    if (type(img) is np.ndarray) and (img.ndim == 3) \
+            and (img.dtype == np.float64):
+        pass
+    else:
+        raise RuntimeError, "The image format is incorrect."
+
 
 class Component(object):
     """ The common interface to process an input image

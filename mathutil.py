@@ -9,7 +9,7 @@ def gemm(alpha, A, B, dtype=None, out=None):
     '''
     from scipy.linalg.fblas import dgemm, sgemm
     if A.ndim != 2 or B.ndim != 2:
-        raise TypeError, 'mygemm only deals with 2-D matrices.'
+        raise TypeError, 'gemm only deals with 2-D matrices.'
     if dtype is None:
         dtype=A.dtype
     if dtype != np.float32 and dtype != np.float64:
@@ -36,9 +36,6 @@ def gemm(alpha, A, B, dtype=None, out=None):
         trans_a=0
     else:
         trans_a=1
-        
-    # actually do the computation. Instead of doing A*B we actually do (B'*A')'
-    # to make the output matrix C-contiguous as we often want.
     if dtype == np.float32:
         fblas_gemm = sgemm
     else:
@@ -54,11 +51,12 @@ def gemm(alpha, A, B, dtype=None, out=None):
         fblas_gemm(alpha, B, A, 0.0, out.T, trans_b, trans_a, True)
         return out
 
+
 def dot(A, B, out=None):
     '''
     a simple wrapper that mimics np.dot (if A and B are both matrices!)
     This function solves the problem that np.dot copies matrices when
-    working on Matrix.T structures.A
+    working on transposed matrices.
     Input:
         A, B: two matrices. should be either c-contiguous or f-contiguous
     Output:
@@ -67,6 +65,7 @@ def dot(A, B, out=None):
         TypeError, if the type of matrices is wrong.
     '''
     return gemm(1.0, A, B, out=out)
+
 
 def dot_image(image, B):
     """ A wrapper that does dot for a multidimensional image that is often used
@@ -77,10 +76,17 @@ def dot_image(image, B):
     if not image.flags['C_CONTIGUOUS']:
         raise TypeError, 'Error: cannot deal with non-C-contiguous image'
     output = gemm(1.0, image.reshape((np.prod(imshape[:-1]), imshape[-1])), B)
-    return output.reshape(imshape[:-1] + (B.shape[1],))
+    output.resize(imshape[:-1] + (B.shape[1],))
+    return output
+
 
 def exp(X, out = None):
     """ A (hacky) safe exp that avoids overflowing
+    Input:
+        X: the input ndarray
+        out: (optional) the output ndarray. Could be in-place.
+    Output:
+        out: the output ndarray
     """
     if out is None:
         out = np.empty_like(X)
@@ -161,6 +167,10 @@ class ReservoirSampler(object):
         else:
             return self._data
 
+###############################################################################
+# MPI-related utils are implemented here.
+###############################################################################
+
 def mpi_mean(data):
     """An mpi implementation of the mean over different nodes.
     """
@@ -171,10 +181,13 @@ def mpi_mean(data):
     m /= float(num_data)
     return m
 
-def mpi_std(data):
+def mpi_std(data, m = None):
     """An mpi implementation of the std over different nodes.
     """
-    m = mpi_mean(data)
+    if m is None:
+        m = mpi_mean(data)
+    # since we need to compute the square, we cannot do in-place subtraction
+    # and addition.
     data_centered = data - m
     data_centered **= 2
     std_local = data_centered.sum(0)
@@ -184,15 +197,30 @@ def mpi_std(data):
     std /= float(num_data)
     return std
 
-def mpi_cov(data):
-    """An mpi implementation of the covariance matrix over different nodes
+def mpi_meanstd(data):
+    """A wrapper for both the mean and std. See mpi_mean and mpi_std for details
     """
     m = mpi_mean(data)
-    data_centered = data - m
-    cov_local = dot(data_centered.T, data_centered)
+    std = mpi_std(data, m = m)
+    return m, std
+
+def mpi_cov(data, m = None):
+    """An mpi implementation of the covariance matrix over different nodes
+    """
+    if m is None:
+        m = mpi_mean(data)
+    data -= m
+    cov_local = dot(data.T, data)
     covmat = np.empty_like(cov_local)
     mpi.COMM.Allreduce(cov_local, covmat)
     num_data = mpi.COMM.allreduce(data.shape[0])
     covmat /= float(num_data)
+    data += m
     return covmat
 
+def mpi_meancov(data):
+    """A wrapper for both the mean and cov. See mpi_mean and mpi_std for details
+    """
+    m = mpi_mean(data)
+    covmat = mpi_cov(data, m = m)
+    return m, covmat
