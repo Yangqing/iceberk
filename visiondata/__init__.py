@@ -2,9 +2,15 @@
 format defined in iceberk.datasets
 """
 
+
 from iceberk.visiondata._cifar import CifarDataset
 from iceberk.visiondata._cub import CUBDataset
 from iceberk.visiondata._stanford_dog import StanfordDogDataset
 from iceberk.visiondata._mnist import MNISTDataset
 from iceberk.visiondata._stl_10 import STL10Dataset
 from iceberk.visiondata.jitter import JitterSet
+from iceberk.datasets import TwoLayerDataset
+
+# some alias
+Caltech101Dataset = TwoLayerDataset
+ILSVRCDataset = TwoLayerDataset
