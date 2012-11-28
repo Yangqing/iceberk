@@ -178,7 +178,7 @@ class CUBDataset(datasets.ImageSet):
         mpi.mkdir(target_folder)
         for idx in range(self.size()):
             name = self._raw_name[idx]
-            mpi.mkdir(os.path.join(target_folder, os.path.basename(name)))
+            mpi.mkdir(os.path.join(target_folder, os.path.dirname(name)))
             misc.imsave(os.path.join(target_folder, name),\
                         self._read(idx))
 
