@@ -70,13 +70,14 @@ class CUBDataset(datasets.ImageSet):
             target = 1
         else:
             target = 0
-        images = [os.path.join(root, 'images', image)
-                  for image, val in zip(images, split) if val == target]
+        images = [image for image, val in zip(images, split) if val == target]
         boxes = [box for box, val in zip(boxes, split) if val == target]
         labels = [label for label, val in zip(labels, split) if val == target]
         rawparts = rawparts[np.asarray(split)==target] - 1
         # store the necessary values
+        self._root = root
         self._data = mpi.distribute_list(images)
+        self._raw_name = self._data
         # for the boxes, we store them as a numpy array
         self._boxes = np.array(mpi.distribute_list(boxes)).astype(float)
         self._boxes -= 1
@@ -97,7 +98,8 @@ class CUBDataset(datasets.ImageSet):
         self._classnames = mpi.COMM.bcast(classnames)
 
     def _read(self, idx):
-        image = datasets.imread_rgb(self._data[idx])
+        image = datasets.imread_rgb(os.path.join(self._root, 'images',\
+                                                 self._raw_name[idx]))
         self._raw_dimension[idx] = image.shape[:2]
         xmin, ymin, xmax, ymax = \
                     self._get_cropped_coordinates(idx)
@@ -169,6 +171,16 @@ class CUBDataset(datasets.ImageSet):
                 '190.Red_cockaded_Woodpecker',
                 '191.Red_headed_Woodpecker',
                 '192.Downy_Woodpecker']
+    
+    def dump(self, target_folder):
+        """Dump the current images to the target folder
+        """
+        mpi.mkdir(target_folder)
+        for idx in range(self.size()):
+            name = self._raw_name[idx]
+            mpi.mkdir(os.path.join(target_folder, os.path.basename(name)))
+            misc.imsave(os.path.join(target_folder, name),\
+                        self._read(idx))
 
 if __name__ == "__main__":
     from iceberk import classifier, pipeline, visualize, visiondata, mpi
