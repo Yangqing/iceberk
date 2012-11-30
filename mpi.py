@@ -110,7 +110,6 @@ def root_log_level(level, name = None):
     if is_root():
         logging.getLogger(name).setLevel(level)
 
-
 def log_level(level, name = None):
     """set the log level on all nodes. 
     Input:
@@ -223,9 +222,13 @@ def distribute_list(source):
         return source
     if is_root():
         length = len(source)
+        if length == 0:
+            logging.warning("Warning: List has length 0")
     else:
         length = 0
     length = COMM.bcast(length)
+    if length == 0:
+        return []
     segments = get_segments(length)
     if is_root():
         for i in range(1,SIZE):
