@@ -4,14 +4,14 @@
 from iceberk import datasets, mpi
 import numpy as np
 import os
-from scipy import misc
+from scipy import io, misc
 
 
 class CUBDataset(datasets.ImageSet):
-    """ The Caltech-UCSD bird dataset 2011
+    """ The Caltech-UCSD bird dataset
     """
     def __init__(self, root, is_training, crop = False, subset = None, 
-                 prefetch = False, target_size = None):
+                 prefetch = False, target_size = None, version = '2011'):
         """Load the dataset.
         Input:
             root: the root folder of the CUB_200_2011 dataset.
@@ -29,24 +29,51 @@ class CUBDataset(datasets.ImageSet):
                 of memory.
             target_size: if provided, all images are resized to the size 
                 specified. Should be a list of two integers, like [640,480].
+            version: either '2011' or '2010'. Note that the 2011 version
+                contains the parts, while the 2010 version does not.
             
         Note that we will use the python indexing (labels start from 0).
         """
         super(CUBDataset, self).__init__()
-        images = [line.split()[1] for line in
-                    open(os.path.join(root, 'images.txt'), 'r')]
-        boxes = [line.split()[1:] for line in
-                    open(os.path.join(root, 'bounding_boxes.txt'),'r')]
-        labels = [int(line.split()[1]) - 1 for line in
-                    open(os.path.join(root, 'image_class_labels.txt'), 'r')]
-        classnames = [line.split()[1] for line in
-                    open(os.path.join(root, 'classes.txt'),'r')]
-        class2id = dict(zip(classnames, range(len(classnames))))
-        split = [int(line.split()[1]) for line in
-                    open(os.path.join(root, 'train_test_split.txt'),'r')]
-        # load parts
-        rawparts = np.loadtxt(os.path.join(root, 'parts','part_locs.txt'))
-        rawparts = rawparts[:,2:-1].reshape((len(images), 15, 2))
+        if version == '2011':
+            images = [line.split()[1] for line in
+                        open(os.path.join(root, 'images.txt'), 'r')]
+            boxes = [line.split()[1:] for line in
+                        open(os.path.join(root, 'bounding_boxes.txt'),'r')]
+            labels = [int(line.split()[1]) - 1 for line in
+                        open(os.path.join(root, 'image_class_labels.txt'), 'r')]
+            classnames = [line.split()[1] for line in
+                        open(os.path.join(root, 'classes.txt'),'r')]
+            class2id = dict(zip(classnames, range(len(classnames))))
+            split = [int(line.split()[1]) for line in
+                        open(os.path.join(root, 'train_test_split.txt'),'r')]
+            # load parts
+            rawparts = np.loadtxt(os.path.join(root, 'parts','part_locs.txt'))
+            rawparts = rawparts[:,2:-1].reshape((len(images), 15, 2))
+        elif version == '2010':
+            # we are using version 2010. We load the data to mimic the 2011
+            # version data format
+            images = [line.strip() for line in
+                        open(os.path.join(root, 'lists', 'files.txt'), 'r')]
+            boxes = [] # TODO: get boxes
+            # unfortunately, we need to load the boxes from matlab annotations
+            for filename in images:
+                matfile = io.loadmat(os.path.join(root, 'annotations-mat',
+                                                  filename[:-3]+'mat'))
+                left, top, right, bottom = \
+                        [matfile['bbox'][0][0][i][0][0] for i in range(4)]
+                boxes.append([left, top, right-left, bottom-top])
+            train_images = [line.strip() for line in
+                        open(os.path.join(root, 'lists', 'train.txt'), 'r')]
+            labels = [int(line[:line.find('.')]) - 1 for line in images]
+            classnames = [line.strip() for line in
+                        open(os.path.join(root, 'lists', 'classes.txt'),'r')]
+            class2id = dict(zip(classnames, range(len(classnames))))
+            split = [int(line in train_images) for line in images]
+            # we do not have rawparts.
+            rawparts = None
+        else:
+            raise ValueError, "Unrecognized version: %s" % version
         if subset is not None:
             # create the subset mapping
             old2new = {}
@@ -64,7 +91,8 @@ class CUBDataset(datasets.ImageSet):
             classnames = subset
             class2id = dict(zip(classnames, range(len(classnames))))
             split = [trte for trte, val in zip(split, is_selected) if val]
-            rawparts = rawparts[np.asarray(is_selected, dtype=bool)]
+            if rawparts is not None:
+                rawparts = rawparts[np.asarray(is_selected, dtype=bool)]
         # now, do training testing split
         if is_training:
             target = 1
@@ -73,15 +101,20 @@ class CUBDataset(datasets.ImageSet):
         images = [image for image, val in zip(images, split) if val == target]
         boxes = [box for box, val in zip(boxes, split) if val == target]
         labels = [label for label, val in zip(labels, split) if val == target]
-        rawparts = rawparts[np.asarray(split)==target] - 1
+        if rawparts is not None:
+            rawparts = rawparts[np.asarray(split)==target] - 1
         # store the necessary values
+        self._version = version
         self._root = root
         self._data = mpi.distribute_list(images)
         self._raw_name = self._data
         # for the boxes, we store them as a numpy array
         self._boxes = np.array(mpi.distribute_list(boxes)).astype(float)
         self._boxes -= 1
-        self._parts = mpi.distribute(rawparts)
+        if rawparts is not None:
+            self._parts = mpi.distribute(rawparts)
+        else:
+            self._parts = None
         self._prefetch = prefetch
         self._target_size = target_size
         self._crop = crop
@@ -130,6 +163,8 @@ class CUBDataset(datasets.ImageSet):
         return xmin, ymin, xmax, ymax
     
     def parts(self, idx):
+        if self._version == '2010':
+            raise RuntimeError, "The 2010 version does not have part locations."
         part = self._parts[idx].copy()
         invalid = (part[:,0] < 0)
         xmin, ymin, xmax, ymax = \
@@ -181,10 +216,3 @@ class CUBDataset(datasets.ImageSet):
             mpi.mkdir(os.path.join(target_folder, os.path.dirname(name)))
             misc.imsave(os.path.join(target_folder, name),\
                         self._read(idx))
-
-if __name__ == "__main__":
-    from iceberk import classifier, pipeline, visualize, visiondata, mpi
-    import numpy as np
-    
-    root = '/u/vis/farrell/datasets/CUB_200_2011'
-    traindata = visiondata.CUBDataset(root, True, prefetch = False)
