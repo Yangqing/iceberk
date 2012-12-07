@@ -34,17 +34,17 @@ class TestExtractor(unittest.TestCase):
         
     def testShowMultiple(self):
         patches = np.random.rand(10,16)
-        self.assertEqual(self.visualizer.show_multiple(patches).shape, (19,19))
+        self.assertEqual(self.visualizer.show_multiple(patches).shape, (14,19))
         patches = np.random.rand(10,4,4)
-        self.assertEqual(self.visualizer.show_multiple(patches).shape, (19,19))
+        self.assertEqual(self.visualizer.show_multiple(patches).shape, (14,19))
         patches = np.random.rand(10,16*3)
-        self.assertEqual(self.visualizer.show_multiple(patches).shape, (19,19,3))
+        self.assertEqual(self.visualizer.show_multiple(patches).shape, (14,19,3))
         patches = np.random.rand(10,4,4,3)
-        self.assertEqual(self.visualizer.show_multiple(patches).shape, (19,19,3))
+        self.assertEqual(self.visualizer.show_multiple(patches).shape, (14,19,3))
     
     def testShowChannels(self):
         patches = np.random.rand(4,4,10)
-        self.assertEqual(self.visualizer.show_channels(patches).shape, (19,19))
+        self.assertEqual(self.visualizer.show_channels(patches).shape, (14,19))
       
 if __name__ == "__main__":
     unittest.main()

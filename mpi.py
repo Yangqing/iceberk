@@ -221,7 +221,12 @@ def distribute_list(source):
     # quick check
     if SIZE == 1:
         return source
-    segments = get_segments(len(source))
+    if is_root():
+        length = len(source)
+    else:
+        length = 0
+    length = COMM.bcast(length)
+    segments = get_segments(length)
     if is_root():
         for i in range(1,SIZE):
             send_list = source[segments[i]:segments[i+1]]
@@ -286,6 +291,7 @@ def dump_matrix_multi(mat, filename):
         raise ValueError, 'I cannot deal with too many MPI instances.'
     logging.debug("Dumping the matrix to %d parts" % SIZE)
     my_filename = '%s-%05d-of-%05d.npy' % (filename, RANK, SIZE)
+    mkdir(os.path.dirname(filename))
     np.save(my_filename, mat)
 
 

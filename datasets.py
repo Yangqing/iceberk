@@ -220,7 +220,7 @@ class ResizeSet(ImageSet):
 
 class TwoLayerDataset(ImageSet):
     """Builds a dataset composed of two-layer storage structures similar to
-    Caltech-101
+    Caltech-101 and ILSVRC
     """
     def __init__(self, root_folder, extensions, prefetch = False, 
                  target_size = None, max_size = None):
@@ -238,7 +238,7 @@ class TwoLayerDataset(ImageSet):
                 specified. Should be a list of two integers, like [640,480].
             max_size: if provided, any image that is larger than the max size
                 is scaled so that its larger edge has max_size. if target_size
-                is set, it overrides max_size.
+                is set, max_size takes no effect.
         """
         super(TwoLayerDataset, self).__init__()
         if mpi.agree(not os.path.exists(root_folder)):
@@ -253,7 +253,7 @@ class TwoLayerDataset(ImageSet):
             files = [f for f in files  if any([
                             f.lower().endswith(ext) for ext in extensions])]
             # get raw labels
-            labels = [os.path.split(f)[-2] for f in files]
+            labels = [os.path.split(os.path.split(f)[0])[1] for f in files]
             classnames = list(set(labels))
             # sort so we get a reasonable class order
             classnames.sort()
@@ -263,7 +263,8 @@ class TwoLayerDataset(ImageSet):
             files = None
             classnames = None
             labels = None
-        self._data = mpi.distribute_list(files)
+        self._rawdata = mpi.distribute_list(files)
+        self._data = self._rawdata
         self._prefetch = prefetch
         self.target_size = target_size
         self._max_size = max_size
