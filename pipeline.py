@@ -7,6 +7,7 @@ problems.
 """
 from iceberk import cpputil, mathutil, mpi, util
 from iceberk import kmeans_mpi, omp_mpi, omp_n_mpi
+from iceberk import datasets
 import logging
 import numpy as np
 from PIL import Image
@@ -27,6 +28,11 @@ def CHECK_IMAGE(img):
     else:
         raise RuntimeError, "The image format is incorrect."
 
+def CHECK_SHAPE(img, shape):
+    if (type(img) is not np.ndarray):
+        raise RuntimeError, "The image is not a numpy array."
+    if img.shape != shape:
+        raise RuntimeError, "The shapes do not equal."
 
 class Component(object):
     """ The common interface to process an input image
@@ -42,14 +48,15 @@ class Component(object):
         """
         self.specs = specs
     
-    def process(self, image):
+    def process(self, image, out = None):
         """ The interface that processes the input from the last component,
         and outputs the input for the next component.
         
         Input:
             image: an Ndarray where the feature is along the last axis
+            out: optionally, input an Ndarray as the preallocated output buffer.
         Output:
-            output: an Ndarray, whose size only differes from image on the
+            out: an Ndarray, whose size only differes from image on the
                 last dimension. It should be the output to the next layer.
         """
         raise NotImplementedError
@@ -74,9 +81,14 @@ class ConvLayer(list):
         """Initialize a convolutional layer.
         Optional keyword parameters:
             prev: the previous convolutional layer. Default None.
+            fixed_inputsize: if set True, we assume that all input images have
+                fixed shape - in this case we will have efficient buffer.
         """
         self._previous_layer = kwargs.pop('prev', None)
+        self._fixed_inputsize = kwargs.pop('fixed_inputsize', False)
         super(ConvLayer, self).__init__(*args, **kwargs)
+        if self._fixed_inputsize:
+            self._buffer = [None] * (len(self) + 1)
         
     def train(self, dataset, num_patches,
               exhaustive = False, ratio_per_image = 0.1):
@@ -112,13 +124,21 @@ class ConvLayer(list):
                 patches = component.process(patches)
         logging.debug("Training convolutional layer done.")
         
-        
     def process(self, image, as_vector = False):
         output = image
         if self._previous_layer is not None:
             output = self._previous_layer.process(image)
-        for element in self:
-            output = element.process(output)
+        if self._fixed_inputsize:
+            self._buffer[0] = output
+            for i, element in enumerate(self):
+                # provide buffer
+                self._buffer[i+1] = element.process(self._buffer[i],
+                                                    out=self._buffer[i+1])
+            # in the end we produce a copy of the output
+            output = self._buffer[-1].copy()
+        else:
+            for element in self:
+                output = element.process(output)
         if as_vector:
             output.resize(np.prod(output.shape))
         return output
@@ -211,7 +231,7 @@ class Extractor(Component):
                             "smaller than the number of samples needed.")
         return sampler.get()
     
-    def process(self, image):
+    def process(self, image, out = None):
         """Each extractor should implement its own process function
         """
         raise NotImplementedError
@@ -222,8 +242,11 @@ class IdenticalExtractor(Extractor):
     def __init__(self):
         pass
     
-    def process(self, image):
-        return np.atleast_3d(image.copy())
+    def process(self, image, out = None):
+        if out is not None:
+            out[:] = np.atleast_3d(image)
+        else:
+            return np.atleast_3d(image.copy())
 
 class PatchExtractor(Extractor):
     """The patch extractor. It densely extracts overlapping patches, and 
@@ -245,11 +268,15 @@ class PatchExtractor(Extractor):
         self.stride = stride
     
     def sample(self, dataset, num_patches, previous_layer = None,
-               exhaustive = False, ratio_per_image = 0.1):
+               exhaustive = False, ratio_per_image = 0.1, withlabel = False):
         """ randomly sample num_patches from the dataset.
         
         The returned patches would be a 2-dimensional ndarray of size
             [num_patches, psize[0] * psize[1] * num_channels]
+        
+        Optionally, you can set withlabel = True, in which case the function
+        also returns the label of the image. Note that this would make the
+        output format compatible with the general pipeline.
         """
         if previous_layer is not None:
             return Extractor.sample(self, dataset, num_patches,
@@ -265,12 +292,12 @@ class PatchExtractor(Extractor):
                             self.psize[1] * 
                             dataset.num_channels()))
         current_im = -1
-        if dataset.dim() is not None:
+        if dataset.dim() is not None and dataset.dim() is not False:
             # all images have the same dim, making random sampling easier
             dim = dataset.dim()
             rowids = np.random.randint(dim[0]-self.psize[0], size=num_patches)
             colids = np.random.randint(dim[1]-self.psize[1], size=num_patches)
-            precomputed = True  
+            precomputed = True
         else:
             precomputed = False
         for i in range(num_patches):
@@ -278,6 +305,12 @@ class PatchExtractor(Extractor):
                 im = dataset.image(imids[i])
                 current_im = imids[i]
             if not precomputed:
+                if im.shape[0] < self.psize[0] or im.shape[1] < self.psize[1]:
+                    # the following line is only for occasional debugging purpose
+                    #logging.error("The imagename: %s" % dataset._rawdata[imids[i]])
+                    raise ValueError, "Image shape %s and patch shape %s are "\
+                                      "not compatible" % \
+                                      (repr(im.shape), repr(self.psize))
                 rowid = np.random.randint(im.shape[0]-self.psize[0])
                 colid = np.random.randint(im.shape[1]-self.psize[1])
             else:
@@ -285,9 +318,12 @@ class PatchExtractor(Extractor):
                 colid = colids[i]
             patches[i] = im[rowid:rowid+self.psize[0], \
                             colid:colid+self.psize[1]].flat
-        return patches
+        if withlabel:
+            return patches, dataset.labels()[imids]
+        else:
+            return patches
         
-    def process(self, image):
+    def process(self, image, out = None):
         '''process an image
         
         The returned image would be a 3-dimensional ndarray of size
@@ -304,23 +340,25 @@ class PatchExtractor(Extractor):
         num_patches= len(idxh) * len(idxw)
         if num_patches == 0:
             raise ValueError, "The image is too small for dense extraction!"
-        patches = np.empty((new_height, new_width, 
-                            self.psize[0] * 
-                            self.psize[1] * 
-                            num_channels))
+        if out is None:
+            out = np.empty((new_height, new_width, 
+                    self.psize[0] * self.psize[1] * num_channels))
+        else:
+            CHECK_SHAPE(out, (new_height, new_width, 
+                    self.psize[0] * self.psize[1] * num_channels))
         for i in idxh:
             for j in idxw:
-                patches[i,j] = image[i:i+self.psize[0],j:j+self.psize[1]].flat
-        return patches
-        
+                out[i,j] = image[i:i+self.psize[0],j:j+self.psize[1]].flat
+        return out
+
 
 class Normalizer(Component):
     """ Normalizer are those layers that do not need training
     """
     
-    def process(self, image):
+    def process(self, image, out = None):
         raise NotImplementedError
-    
+
     def train(self, patches):
         """ For normalizers, usually no training should be needed.
         """
@@ -330,13 +368,16 @@ class Normalizer(Component):
 class MeanNormalizer(Normalizer):
     """Normalizes the patches to mean zero
     """
-    def process(self, image):
+    def process(self, image, out = None):
         """ normalizes the patches.
         """
         image = image.astype(np.float64)
         m = image.mean(axis=-1).reshape(image.shape[:-1] + (1,))
-        image_out = image - m
-        return image_out
+        if out is None:
+            out = image - m
+        else:
+            out[:] = image - m
+        return out
 
 
 class MeanvarNormalizer(Normalizer):
@@ -345,7 +386,7 @@ class MeanvarNormalizer(Normalizer):
     Specs:
         'reg': the regularization term added to the norm.
     """
-    def process(self, image):
+    def process(self, image, out = None):
         """ normalizes the patches.
         """
         image = image.astype(np.float64)
@@ -355,11 +396,15 @@ class MeanvarNormalizer(Normalizer):
         m = image.mean(axis=1)
         std = image.std(axis=1)
         std += self.specs.get('reg', np.finfo(np.float64).eps)
-        image_out = image - m[:, np.newaxis]
-        image_out /= std[:, np.newaxis]
+        if out is None:
+            out = image - m[:, np.newaxis]
+        else:
+            out.resize(shape_temp)
+            out[:] = image - m[:, np.newaxis]
+        out /= std[:, np.newaxis]
         image.resize(shape_old)
-        image_out.resize(shape_old)
-        return image_out
+        out.resize(shape_old)
+        return out
 
 class SpatialMeanNormalizer(Normalizer):
     """Normalizes the patches by subtracting the per-channel mean.
@@ -367,7 +412,7 @@ class SpatialMeanNormalizer(Normalizer):
     Specs:
         'channels': the number of channels for the patches.
     """
-    def process(self, image):
+    def process(self, image, out = None):
         """ normalizes the patches.
         """
         image = image.astype(np.float64)
@@ -378,41 +423,16 @@ class SpatialMeanNormalizer(Normalizer):
                       shape_old[-1] / channels, channels)
         image.resize(shape_temp)
         m = image.mean(axis=1)
-        image_out = image - m[:,np.newaxis, :]
+        if out is None:
+            out = image - m[:,np.newaxis, :]
+        else:
+            out.resize(shape_temp)
+            out[:] = image - m[:, np.newaxis, :]
         image.resize(shape_old)
-        image_out.resize(shape_old)
-        return image_out
+        out.resize(shape_old)
+        return out
 
 
-class SpatialMeanvarNormalizer(Normalizer):
-    """Normalizes the patches by subtracting the per-channel mean, and standard
-    deviation 1.
-    
-    Specs:
-        'reg': the regularization term added to the norm.
-        'channels': the number of channels for the patches.
-    """
-    def process(self, image):
-        """ normalizes the patches.
-        """
-        image = image.astype(np.float64)
-        channels = self.specs['channels']
-        shape_old = image.shape
-        # first, subtract the mean
-        shape_temp = (np.prod(shape_old[:-1]), 
-                      shape_old[-1] / channels, channels)
-        image.resize(shape_temp)
-        m = image.mean(axis=1)
-        image_out = image - m[:,np.newaxis, :]
-        # then, do normalization
-        shape_temp = (np.prod(shape_old[:-1]), shape_old[-1])
-        image_out.resize(shape_temp)
-        length = (image_out**2).sum(1)
-        length += self.specs.get('reg', np.finfo(np.float64).eps)
-        image_out /= length[:, np.newaxis]
-        image.resize(shape_old)
-        image_out.resize(shape_old)
-        return image_out
 
 
 class L2Normalizer(Normalizer):
@@ -441,14 +461,19 @@ class L1Normalizer(Normalizer):
     Specs:
         'reg': the regularization term added to the norm.
     """
-    def process(self, image):
+    def process(self, image, out = None):
         """ normalizes the patches
         """
         reg = self.specs.get('reg', np.finfo(np.float64).eps)
-        image_out = image / (np.sum(image, axis = -1) + reg).\
+        if out is None:
+            out = image / (np.sum(image, axis = -1) + reg).\
                                 reshape(image.shape[:-1] + (1,))
-        return image_out
-    
+        else:
+            out[:] = image
+            out /= (np.sum(image, axis = -1) + reg).\
+                            reshape(image.shape[:-1] + (1,))
+        return out
+
 
 class DictionaryTrainer(object):
     """The dictionary trainer
@@ -564,7 +589,7 @@ class FeatureEncoder(Component):
         self.dictionary = None
         super(FeatureEncoder, self).__init__(specs)
         
-    def process(self, image):
+    def process(self, image, out=None):
         raise NotImplementedError
         
     def train(self, incoming_patches):
@@ -574,23 +599,23 @@ class FeatureEncoder(Component):
 class LinearEncoderBW(FeatureEncoder):
     """A linear encoder that does output = (input + b) * W
     """
-    def process(self, image):
+    def process(self, image, out = None):
         W, b = self.dictionary
         # we create the offset in-place: this might introduce some numerical
         # differences but should be fine most of the time
         image += b
-        output = mathutil.dot_image(image, W)
+        out = mathutil.dot_image(image, W, out=out)
         image -= b
-        return output
+        return out
 
 class LinearEncoderWB(FeatureEncoder):
     """A linear encoder that does output = input * W + b
     """
-    def process(self, image):
+    def process(self, image, out=None):
         W, b  = self.dictionary
-        output = mathutil.dot_image(image, W)
-        output += b
-        return output
+        out = mathutil.dot_image(image, W, out=out)
+        out += b
+        return out
 
 """the default linear encoder is LinearEncoderBW
 """
@@ -599,47 +624,56 @@ LinearEncoder = LinearEncoderBW
 class InnerProductEncoder(FeatureEncoder):
     """ An innner product encoder that does output = np.dot(input, dictionary)
     """
-    def process(self, image):
-        return mathutil.dot_image(image, self.dictionary.T)
+    def process(self, image, out = None):
+        return mathutil.dot_image(image, self.dictionary.T, out=out)
 
 class VQEncoder(FeatureEncoder):
     """ Vector quantization encoder
     """
-    def process(self, image):
+    def process(self, image, out=None):
         shape = image.shape[:-1]
         num_channels = image.shape[-1]
         image_2d = image.reshape((np.prod(shape), num_channels))
         distance = metrics.euclidean_distances(image_2d, self.dictionary)
-        output = np.zeros_like(distance)
+        if out is None:
+            out = np.zeros_like(distance)
+        else:
+            CHECK_SHAPE(out, distance.shape)
+            out[:] = 0
         idx = distance.argmin(axis=1)
-        output[:,idx] = 1
-        return output.reshape(shape + (output.shape[-1],))
+        out[:,idx] = 1
+        return out.reshape(shape + (out.shape[-1],))
 
 class ThresholdEncoder(FeatureEncoder):
     """ Like inner product encoder, but does thresholding to zero-out small
     values.
     """
-    def process(self, image):
+    def process(self, image, out=None):
         # 0.25 is the default value used in Ng's paper
         alpha = self.specs.get('alpha', 0.25)
-        output = mathutil.dot_image(image, self.dictionary.T)
         # check if we would like to do two-side thresholding. Default yes.
         if self.specs.get('twoside', True):
             # concatenate, and make sure to be C_CONTIGUOUS
-            imshape = output.shape[:-1]
-            N = output.shape[-1]
-            output.resize((np.prod(imshape), N))
-            temp = np.empty((np.prod(imshape), N*2))
-            temp[:,:N] = output
-            temp[:,N:] = -output
-            output = temp.reshape(imshape + (N*2,))
+            product = mathutil.dot_image(image, self.dictionary.T)
+            imshape = product.shape[:-1]
+            N = product.shape[-1]
+            product.resize((np.prod(imshape), N))
+            if out is None:
+                out = np.empty((np.prod(imshape), N*2))
+            else:
+                out.resize((np.prod(imshape), N*2))
+            out[:,:N] = product
+            out[:,N:] = -product
+            out.resize(imshape + (N*2,))
         elif self.specs['twoside'] == 'abs':
-            np.abs(output, out=output)
+            out = mathutil.dot_image(image, self.dictionary.T, out=out)
+            np.abs(out, out=out)
         else:
-            pass
-        output -= alpha
-        np.clip(output, 0., np.inf, out=output)
-        return output
+            out = mathutil.dot_image(image, self.dictionary.T, out=out)
+        # do threshold
+        out -= alpha
+        np.clip(out, 0., np.inf, out=out)
+        return out
 
 
 class ReLUEncoder(ThresholdEncoder):
@@ -654,14 +688,20 @@ class ReLUEncoder(ThresholdEncoder):
 class TriangleEncoder(FeatureEncoder):
     """ Does triangle encoding as described in Coates and Ng's AISTATS paper
     """
-    def process(self, image):
-        shape = image.shape[:-1]
+    def process(self, image, out=None):
+        imshape = image.shape[:-1]
         num_channels = image.shape[-1]
-        image_2d = image.reshape((np.prod(shape), num_channels))
+        image_2d = image.reshape((np.prod(imshape), num_channels))
         distance = metrics.euclidean_distances(image_2d, self.dictionary)
         mu = np.mean(distance, axis=1)
-        encoded = np.maximum(0., mu.reshape(mu.size, 1) - distance)
-        return encoded.reshape(shape + (encoded.shape[-1],))
+        if out is None:
+            out = np.maximum(0., mu.reshape(mu.size, 1) - distance)
+        else:
+            out.resize(distance.shape)
+            out[:] = -distance
+            out += mu.reshape(mu.size, 1)
+            np.clip(out, 0, np.Inf, out=out)
+        return out.reshape(imshape + (out.shape[-1],))
                     
 class LLCEncoder(FeatureEncoder):
     """Encode with LLC
@@ -671,7 +711,7 @@ class LLCEncoder(FeatureEncoder):
          reg: the LLC reconstruction regularize. default 1e-4.
          (default values from Jianchao Yang's LLC paper in CVPR 2010)
     """
-    def process(self, image):
+    def process(self, image, out=None):
         '''Performs llc encoding.
         '''
         K = self.specs.get('k', 5)
@@ -692,7 +732,11 @@ class LLCEncoder(FeatureEncoder):
         else:
             IDX = np.argsort(distance,1)[:, :K]
         # do LLC approximate coding
-        coeff = np.zeros((X.shape[0], D.shape[0]))
+        if out is None:
+            out = np.zeros((X.shape[0], D.shape[0]))
+        else:
+            out.resize((X.shape[0], D.shape[0]))
+            out[:] = 0
         ONES = np.ones(K)
         Z = np.empty((K, D.shape[1]))
         for i in range(X.shape[0]):
@@ -704,9 +748,10 @@ class LLCEncoder(FeatureEncoder):
             # add regularization
             C.flat[::K+1] += reg * C.trace()
             w = np.linalg.solve(C,ONES)
-            coeff[i][IDX[i]] = w / w.sum()
-        return coeff.reshape(shape + (coeff.shape[1],))
-
+            out[i][IDX[i]] = w / w.sum()
+        out.resize(shape + (out.shape[1],))
+        return out
+    
 class Pooler(Component):
     """Pooler is just an abstract class that holds all pooling subclasses
     """
@@ -728,11 +773,16 @@ class MetaPooler(Pooler):
         self._basic_poolers = basic_poolers
         self.specs = specs
 
-    def process(self, image):
+    def process(self, image, out = None):
         output = []
         for basic_pooler in self._basic_poolers:
             output.append(basic_pooler.process(image).flatten())
-        return np.hstack(output)
+        # dummy implementation
+        if out is None:
+            return np.hstack(output)
+        else:
+            out[:] = np.hstack(output)
+            return out
 
 class SpatialPooler(Pooler):
     """ The spatial Pooler that does spatial pooling on a regular grid.
@@ -747,7 +797,7 @@ class SpatialPooler(Pooler):
         """
         self.specs['grid'] = grid
     
-    def process(self, image):
+    def process(self, image, out = None):
         if not (image.flags['C_CONTIGUOUS'] and image.dtype == np.float64):
             logging.warning("Warning: the image is not contiguous.")
             image = np.ascontiguousarray(image, dtype=np.float64)
@@ -755,8 +805,13 @@ class SpatialPooler(Pooler):
         grid = self.specs['grid']
         if type(grid) is int:
             grid = (grid, grid)
-        output = cpputil.fastpooling(image, grid, self.specs['method'])
-        return output
+        pooled = cpputil.fastpooling(image, grid, self.specs['method'])
+        # dummy implementation
+        if out is None:
+            return pooled
+        else:
+            out[:] = pooled
+            return out
 
 class PyramidPooler(MetaPooler):
     """PyramidPooler performs pyramid pooling.
@@ -802,7 +857,7 @@ class FixedSizePooler(Pooler):
         self.specs['size'] = np.asarray(self.specs['size'], dtype = int)
         self._spatialpooler = SpatialPooler({'method': specs['method']})
 
-    def process(self, image):
+    def process(self, image, out = None):
         """process an image. If the input image size does not fit the pooling
         region (multiples of grid), the boundary is cut as evenly as possible
         around the border.
@@ -816,7 +871,7 @@ class FixedSizePooler(Pooler):
                                            offset[1]:offset[1]+pool_size[1]],
                                      dtype = np.float64)
         self._spatialpooler.set_grid(grid)
-        return self._spatialpooler.process(image)
+        return self._spatialpooler.process(image, out=out)
 
 class KernelPooler(Pooler):
     """KernelPooler is similar to SpatialPooler but uses a kernel to weight
@@ -865,7 +920,7 @@ class KernelPooler(Pooler):
         np.sqrt(out, out=out)
         return out
     
-    def process(self, image):
+    def process(self, image, out = None):
         method = self.specs['method']
         # if method is not pre-defined, it should be an object that can be
         # called to execute the function.
@@ -888,7 +943,11 @@ class KernelPooler(Pooler):
         grid = ((image_size - kernel_size) / stride).astype(int)
         pool_size = grid * stride + kernel_size
         offset = ((image_size - pool_size) / 2).astype(int)
-        output = np.zeros((grid[0], grid[1], output_dim))
+        if out is None:
+            out = np.zeros((grid[0], grid[1], output_dim))
+        else:
+            CHECK_SHAPE(out, (grid[0], grid[1], output_dim))
+            out[:] = 0
         cache = np.zeros((kernel_size[0], kernel_size[1], output_dim))
         cache_2d = cache.view()
         cache_2d.shape = (kernel_size[0] * kernel_size[1], output_dim)
@@ -900,8 +959,8 @@ class KernelPooler(Pooler):
                 cache[:] = image[topleft[0]:bottomright[0], 
                                  topleft[1]:bottomright[1]]
                 cache *= kernel[:, :, np.newaxis]
-                pool(cache_2d, output[i,j])
-        return output
+                pool(cache_2d, out[i,j])
+        return out
     
     @staticmethod
     def kernel_gaussian(size, sigma):
