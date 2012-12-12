@@ -7,13 +7,18 @@ import numpy as np
 import os
 from PIL import Image
 from scipy import misc
+from skimage import transform
 
 
 def imread_rgb(fname):
     '''This imread deals with occasional cases when scipy.misc.imread fails to
     load an image correctly.
     '''
-    return np.asarray(Image.open(fname,'r').convert('RGB'))
+    try:
+        return np.asarray(Image.open(fname,'r').convert('RGB'))
+    except Exception, e:
+        logging.error("Involved image filename: %s" % (fname))
+        raise Exception, e
 
 
 class ImageSet(object):
@@ -161,7 +166,7 @@ class MirrorSet(ImageSet):
         return self._original.num_channels()
 
 class ResizeSet(ImageSet):
-    def __init__(self, original_set, target_size, interp = 'bilinear'):
+    def __init__(self, original_set, target_size):
         """Create a mirrored dataset from the original data set. The original
         set should always contain images - i.e. they have to be either grayscale
         images or color images.
@@ -173,7 +178,6 @@ class ResizeSet(ImageSet):
         super(ResizeSet, self).__init__()
         self._original = original_set
         self._target_size = target_size
-        self._interp = interp
         # decide the dimension
         if type(self._target_size) is not float:
             self._dim = self._target_size
@@ -193,9 +197,9 @@ class ResizeSet(ImageSet):
         Note that you should almost never use data that is hosted on other
         nodes - every node should deal with its data only.
         """
-        return misc.imresize(self._original.image(idx),
-                             self._target_size,
-                             self._interp)
+        return transform.resize(self._original.image(idx),
+                                self._target_size,
+                                mode='nearest')
 
     def label(self, idx):
         """ Returns the label for the corresponding datum
@@ -223,7 +227,8 @@ class TwoLayerDataset(ImageSet):
     Caltech-101 and ILSVRC
     """
     def __init__(self, root_folder, extensions, prefetch = False, 
-                 target_size = None, max_size = None):
+                 target_size = None, max_size = None, min_size = None,
+                 center_crop = None):
         """ Initialize from a two-layer storage
         Input:
             root_folder: the root that contains the data. Under root_folder
@@ -236,9 +241,19 @@ class TwoLayerDataset(ImageSet):
                 of memory.
             target_size: if provided, all images are resized to the size 
                 specified. Should be a list of two integers, like [640,480].
+                Note that this option may skew the images.
             max_size: if provided, any image that is larger than the max size
-                is scaled so that its larger edge has max_size. if target_size
-                is set, max_size takes no effect.
+                is scaled so that its larger edge has max_size. If max_size is
+                negative, all images are scaled (i.e. smaller images are scaled
+                up). If target_size is set, max_size takes no effect.
+            min_size: if provided, any image that is smaller than the min size
+                is scaled so that its smaller edge has min_size. If min_size is
+                negative, all images are scaled (i.e. larger images are scaled
+                down). If target_size or max_size is set, min_size takes no 
+                effect.
+            center_crop: if True, the center of the image is cropped, and the
+                output image will be a square one with length being that of the
+                shorter dimension of the original image.
         """
         super(TwoLayerDataset, self).__init__()
         if mpi.agree(not os.path.exists(root_folder)):
@@ -252,6 +267,7 @@ class TwoLayerDataset(ImageSet):
             # select those that fits the extension
             files = [f for f in files  if any([
                             f.lower().endswith(ext) for ext in extensions])]
+            logging.debug("A total of %d images." % (len(files)))
             # get raw labels
             labels = [os.path.split(os.path.split(f)[0])[1] for f in files]
             classnames = list(set(labels))
@@ -266,8 +282,10 @@ class TwoLayerDataset(ImageSet):
         self._rawdata = mpi.distribute_list(files)
         self._data = self._rawdata
         self._prefetch = prefetch
-        self.target_size = target_size
+        self._target_size = target_size
         self._max_size = max_size
+        self._min_size = min_size
+        self._center_crop = center_crop
         if target_size != None:
             self._dim = tuple(target_size) + (3,)
         else:
@@ -279,13 +297,26 @@ class TwoLayerDataset(ImageSet):
         self._classnames = mpi.COMM.bcast(classnames)
     
     def _read(self, idx):
-        if self.target_size is not None:
-            return misc.imresize(imread_rgb(self._data[idx]),
-                                 self.target_size)
-        else:
-            img = imread_rgb(self._data[idx])
-            if self._max_size is not None and \
-                    max(img.shape[:2]) > self._max_size:
-                ratio = self._max_size / float(max(img.shape[:2]))
-                img = misc.imresize(img, ratio)
-            return img
+        img = imread_rgb(self._rawdata[idx])
+        if self._target_size is not None:
+            img = misc.imresize(img, self._target_size)
+        elif self._max_size is not None:
+            if self._max_size < 0 or max(img.shape[:2]) > self._max_size:
+                newsize = np.asarray(img.shape[:2]) * np.abs(self._max_size) \
+                        / max(img.shape[:2])
+                img = transform.resize(img, newsize,\
+                                       mode='nearest')
+        elif self._min_size is not None:
+            if self._min_size < 0 or min(img.shape[:2]) < self._min_size:
+                newsize = np.asarray(img.shape[:2]) * np.abs(self._min_size) \
+                        / min(img.shape[:2])
+                img = transform.resize(img, newsize.astype(int),\
+                                       mode='nearest')
+        if self._center_crop is True:
+            # crop the center part of the image
+            shorter_length = min(img.shape[:2])
+            offset_y = int((img.shape[0] - shorter_length) / 2)
+            offset_x = int((img.shape[1] - shorter_length) / 2)
+            img = img[offset_y:offset_y + shorter_length,\
+                      offset_x:offset_x + shorter_length]
+        return img
