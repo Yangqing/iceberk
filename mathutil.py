@@ -67,7 +67,7 @@ def dot(A, B, out=None):
     return gemm(1.0, A, B, out=out)
 
 
-def dot_image(image, B):
+def dot_image(image, B, out=None):
     """ A wrapper that does dot for a multidimensional image that is often used
     in the pipeline. The input image should be C-contiguous.
     """
@@ -75,9 +75,14 @@ def dot_image(image, B):
     imshape = image.shape
     if not image.flags['C_CONTIGUOUS']:
         raise TypeError, 'Error: cannot deal with non-C-contiguous image'
-    output = gemm(1.0, image.reshape((np.prod(imshape[:-1]), imshape[-1])), B)
-    output.resize(imshape[:-1] + (B.shape[1],))
-    return output
+    if out is None:
+        out = np.empty((np.prod(imshape[:-1]), imshape[-1]))
+    else:
+        out.resize((np.prod(imshape[:-1]), imshape[-1]))
+    out = gemm(1.0, image.reshape((np.prod(imshape[:-1]), imshape[-1])), B,
+                  out=out)
+    out.resize(imshape[:-1] + (B.shape[1],))
+    return out
 
 
 def exp(X, out = None):
