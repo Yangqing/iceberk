@@ -89,9 +89,9 @@ def dot_image(image, B, out=None):
     if not image.flags['C_CONTIGUOUS']:
         raise TypeError, 'Error: cannot deal with non-C-contiguous image'
     if out is None:
-        out = np.empty((np.prod(imshape[:-1]), imshape[-1]))
+        out = np.empty((np.prod(imshape[:-1]), B.shape[1]))
     else:
-        out.resize((np.prod(imshape[:-1]), imshape[-1]))
+        out.resize((np.prod(imshape[:-1]), B.shape[1]))
     out = gemm(1.0, image.reshape((np.prod(imshape[:-1]), imshape[-1])), B,
                   out=out)
     out.resize(imshape[:-1] + (B.shape[1],))
