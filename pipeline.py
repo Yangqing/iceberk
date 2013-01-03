@@ -9,6 +9,7 @@ from iceberk import cpputil, mathutil, mpi, util
 from iceberk import kmeans_mpi, omp_mpi, omp_n_mpi
 from iceberk import datasets
 import logging
+from mathutil import CHECK_IMAGE, CHECK_SHAPE
 import numpy as np
 from PIL import Image
 from sklearn import metrics
@@ -20,19 +21,6 @@ try:
 except ImportError:
     logging.warning('Cannot find bottleneck, using numpy as backup.')
     bn = None
-
-def CHECK_IMAGE(img):
-    if (type(img) is np.ndarray) and (img.ndim == 3) \
-            and (img.dtype == np.float64):
-        pass
-    else:
-        raise RuntimeError, "The image format is incorrect."
-
-def CHECK_SHAPE(img, shape):
-    if (type(img) is not np.ndarray):
-        raise RuntimeError, "The image is not a numpy array."
-    if img.shape != shape:
-        raise RuntimeError, "The shapes do not equal."
 
 class Component(object):
     """ The common interface to process an input image
@@ -329,27 +317,7 @@ class PatchExtractor(Extractor):
         The returned image would be a 3-dimensional ndarray of size
             [new_height, new_width, psize[0] * psize[1] * num_channels]
         '''
-        image = np.atleast_3d(image)
-        imheight = image.shape[0]
-        imwidth = image.shape[1]
-        num_channels = image.shape[2]
-        stride = self.stride
-        idxh = range(0,imheight-self.psize[0]+1,stride)
-        idxw = range(0,imwidth-self.psize[1]+1,stride)
-        new_height, new_width = len(idxh), len(idxw)
-        num_patches= len(idxh) * len(idxw)
-        if num_patches == 0:
-            raise ValueError, "The image is too small for dense extraction!"
-        if out is None:
-            out = np.empty((new_height, new_width, 
-                    self.psize[0] * self.psize[1] * num_channels))
-        else:
-            CHECK_SHAPE(out, (new_height, new_width, 
-                    self.psize[0] * self.psize[1] * num_channels))
-        for i in idxh:
-            for j in idxw:
-                out[i,j] = image[i:i+self.psize[0],j:j+self.psize[1]].flat
-        return out
+        return cpputil.im2col(image, self.psize, self.stride, out)
 
 
 class Normalizer(Component):

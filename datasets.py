@@ -20,6 +20,12 @@ def imread_rgb(fname):
         logging.error("Involved image filename: %s" % (fname))
         raise Exception, e
 
+def lena():
+    """Returns the lena image from iceberk's testing folder
+    """
+    fname = os.path.join(os.path.dirname(__file__), 'test', 'data', 'lena.png')
+    return imread_rgb(fname)
+
 
 class ImageSet(object):
     """The basic structure that stores data. This class should be MPI ready.

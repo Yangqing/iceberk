@@ -1,6 +1,19 @@
 import numpy as np
 from iceberk import mpi
 
+def CHECK_IMAGE(img):
+    if (type(img) is np.ndarray) and (img.ndim == 3) \
+            and (img.dtype == np.float64):
+        pass
+    else:
+        raise RuntimeError, "The image format is incorrect."
+
+def CHECK_SHAPE(img, shape):
+    if (type(img) is not np.ndarray):
+        raise RuntimeError, "The image is not a numpy array."
+    if img.shape != shape:
+        raise RuntimeError, "The shapes do not equal."
+
 def gemm(alpha, A, B, dtype=None, out=None):
     '''A gemm function that uses scipy fblas functions, avoiding matrix copy
     when the input is transposed.

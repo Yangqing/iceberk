@@ -2,22 +2,24 @@
 faster or handles some numpy tricky issues.
 """
 import ctypes as ct
+import logging
 import numpy as np
 import os
 from iceberk import mpi
+from iceberk.mathutil import CHECK_IMAGE, CHECK_SHAPE
 
 # first, let's import the library
 try:
-    _FASTMATH = np.ctypeslib.load_library('libfastmath.so',
+    _CPPUTIL = np.ctypeslib.load_library('libcpputil.so',
             os.path.join(os.path.dirname(__file__), '_cpp'))
 except Exception, e:
-    raise RuntimeError, "I cannot load libfastpool.so. please run make."
+    raise RuntimeError, "I cannot load libcpputil.so. please run make."
 
 ################################################################################
 # fast pooling
 ################################################################################
-_FASTMATH.fastpooling.restype = ct.c_int
-_FASTMATH.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
+_CPPUTIL.fastpooling.restype = ct.c_int
+_CPPUTIL.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
                                       ct.c_int, # height
                                       ct.c_int, # width
                                       ct.c_int, # num_channels
@@ -30,7 +32,7 @@ _POOL_METHODS = {'max':0, 'ave': 1, 'rms': 2}
 
 def fastpooling(image, grid, method):
     output = np.empty((grid[0], grid[1], image.shape[-1]))
-    _FASTMATH.fastpooling(
+    _CPPUTIL.fastpooling(
             image.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(image.shape[0]),
             ct.c_int(image.shape[1]),
@@ -45,8 +47,8 @@ def fastpooling(image, grid, method):
 ################################################################################
 # fast mean and std
 ################################################################################
-_FASTMATH.fastsumx2.restype = None
-_FASTMATH.fastsumx2.argtypes = [ct.POINTER(ct.c_double),
+_CPPUTIL.fastsumx2.restype = None
+_CPPUTIL.fastsumx2.argtypes = [ct.POINTER(ct.c_double),
                               ct.POINTER(ct.c_double),
                               ct.c_int,
                               ct.c_int,
@@ -73,7 +75,7 @@ def fast_std_nompi(mat, axis, mean = None):
     if mean is None or mean.dtype != np.float64:
         mean = np.mean(mat, axis)
     std = np.empty_like(mean)
-    _FASTMATH.fastsumx2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
+    _CPPUTIL.fastsumx2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
             mean.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(mat.shape[0]), 
             ct.c_int(mat.shape[1]),
@@ -100,7 +102,7 @@ def column_meanstd(mat):
     m /= num_data
     # get the std
     sumx2_local = np.empty_like(m)
-    _FASTMATH.fastsumx2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
+    _CPPUTIL.fastsumx2(mat.ctypes.data_as(ct.POINTER(ct.c_double)),
             m.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(mat.shape[0]), 
             ct.c_int(mat.shape[1]),
@@ -115,8 +117,8 @@ def column_meanstd(mat):
 ################################################################################
 # fast submatrix operation
 ################################################################################
-_FASTMATH.submatrix_add.restype = None
-_FASTMATH.submatrix_add.argtypes = [ct.POINTER(ct.c_double),
+_CPPUTIL.submatrix_add.restype = None
+_CPPUTIL.submatrix_add.argtypes = [ct.POINTER(ct.c_double),
                                     ct.POINTER(ct.c_int),
                                     ct.POINTER(ct.c_int),
                                     ct.c_int,
@@ -133,7 +135,7 @@ def submatrix_add(submat, rowid, colid, mat):
         raise ValueError, "Unsupported input matrix."
     rowid = rowid.astype(ct.c_int)
     colid = colid.astype(ct.c_int)
-    _FASTMATH.submatrix_add(submat.ctypes.data_as(ct.POINTER(ct.c_double)),
+    _CPPUTIL.submatrix_add(submat.ctypes.data_as(ct.POINTER(ct.c_double)),
                             rowid.ctypes.data_as(ct.POINTER(ct.c_int)),
                             colid.ctypes.data_as(ct.POINTER(ct.c_int)),
                             ct.c_int(mat.shape[0]),
@@ -142,3 +144,36 @@ def submatrix_add(submat, rowid, colid, mat):
                             ct.c_int(colid.size),
                             mat.ctypes.data_as(ct.POINTER(ct.c_double))
                             )
+
+################################################################################
+# im2col operation
+################################################################################
+_CPPUTIL.im2col.restype = None
+_CPPUTIL.im2col.argtype = [ct.POINTER(ct.c_double),
+                           ct.POINTER(ct.c_int),
+                           ct.POINTER(ct.c_int),
+                           ct.c_int,
+                           ct.POINTER(ct.c_double)]
+
+def im2col(image, psize, stride, out = None):
+    image = np.ascontiguousarray(np.atleast_3d(image), dtype=np.float64)
+    imsize = np.asarray(image.shape, dtype = ct.c_int)
+    psize = np.asarray(psize).astype(ct.c_int)
+    stride = int(stride)
+    if np.any(imsize[:2] < psize):
+        raise ValueError, "No patch can be extracted."
+    newsize = (imsize[:2] - psize) / stride + 1
+    if out is None:
+        out = np.empty((newsize[0], newsize[1], 
+                        psize[0] * psize[1] * imsize[2]))
+        logging.debug("output size: %s" % str(out.shape))
+    else:
+        CHECK_IMAGE(out)
+        CHECK_SHAPE(out, (newsize[0], newsize[1], 
+                          psize[0] * psize[1] * imsize[2]))
+    _CPPUTIL.im2col(image.ctypes.data_as(ct.POINTER(ct.c_double)),
+                    imsize.ctypes.data_as(ct.POINTER(ct.c_int)),
+                    psize.ctypes.data_as(ct.POINTER(ct.c_int)),
+                    ct.c_int(stride),
+                    out.ctypes.data_as(ct.POINTER(ct.c_double)))
+    return out
