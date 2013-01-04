@@ -2,7 +2,6 @@
 faster or handles some numpy tricky issues.
 """
 import ctypes as ct
-import logging
 import numpy as np
 import os
 from iceberk import mpi
@@ -166,7 +165,6 @@ def im2col(image, psize, stride, out = None):
     if out is None:
         out = np.empty((newsize[0], newsize[1], 
                         psize[0] * psize[1] * imsize[2]))
-        logging.debug("output size: %s" % str(out.shape))
     else:
         CHECK_IMAGE(out)
         CHECK_SHAPE(out, (newsize[0], newsize[1], 
@@ -177,3 +175,36 @@ def im2col(image, psize, stride, out = None):
                     ct.c_int(stride),
                     out.ctypes.data_as(ct.POINTER(ct.c_double)))
     return out
+
+################################################################################
+# clip operation
+################################################################################
+_CPPUTIL.clip.restype = None
+_CPPUTIL.clip.argtype = [ct.POINTER(ct.c_double),
+                         ct.c_int,
+                         ct.c_double,
+                         ct.c_double,
+                         ct.c_int]
+_CLIP_LOWER = 1
+_CLIP_UPPER = 2
+
+def clip(arr, lower = None, upper = None):
+    if arr.flags['C_CONTIGUOUS'] == False or arr.dtype != np.float64:
+        raise TypeError, "clip cannot be used on such data type."
+    # check the mode
+    mode = 0
+    if lower is not None:
+        mode += _CLIP_LOWER
+    else:
+        lower = 0.
+    if upper is not None:
+        mode += _CLIP_UPPER
+    else:
+        upper = 0.
+    _CPPUTIL.clip(arr.ctypes.data_as(ct.POINTER(ct.c_double)),
+                  ct.c_int(arr.size),
+                  ct.c_double(lower),
+                  ct.c_double(upper),
+                  ct.c_int(mode))
+    return
+
