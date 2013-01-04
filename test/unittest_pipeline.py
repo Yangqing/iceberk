@@ -88,7 +88,7 @@ class TestDictTrainer(unittest.TestCase):
         
     def testPcaTrainer(self):
         trainer = pipeline.PcaTrainer({})
-        (W, b), (eigval, eigvec) = trainer.train(self.test_patches)
+        (W, b) = trainer.train(self.test_patches)[0]
         np.testing.assert_equal(W.shape[0], self.test_patches.shape[1])
         np.testing.assert_equal(W.shape[1], self.test_patches.shape[1])
         if mpi.SIZE == 1:
