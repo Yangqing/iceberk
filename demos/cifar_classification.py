@@ -48,7 +48,7 @@ def cifar_demo():
             pipeline.MeanvarNormalizer({'reg': 10}), # normalizes the patches
             pipeline.LinearEncoder({},
                     trainer = pipeline.ZcaTrainer({'reg': 0.1})), # Does whitening
-            pipeline.ReLUEncoder({},
+        pipeline.ThresholdEncoder({'alpha': 0.25, 'twoside': True},
                     trainer = pipeline.OMPTrainer(
                             {'k': 800, 'max_iter':100})), # does encoding
             pipeline.SpatialPooler({'grid': (2,2), 'method': 'ave'}) # average pool
@@ -60,8 +60,7 @@ def cifar_demo():
         with open(os.path.join(FLAGS.output_dir, FLAGS.model_file),'w') as fid:
             pickle.dump(conv, fid)
             fid.close()
-"""
-    with open(os.path.join(FLAGS.output_dir, FLAGS.model_file),'w') as fid:
+    with open(os.path.join(FLAGS.output_dir, FLAGS.model_file),'r') as fid:
         conv = pickle.load(fid)
     logging.info('Extracting features...')
     Xtrain = conv.process_dataset(cifar, as_2d = True)
@@ -93,7 +92,6 @@ def cifar_demo():
     
     logging.info('Training accuracy: %f' % accu)
     logging.info('Testing accuracy: %f' % accu_test)
-"""
 
 if __name__ == "__main__":
     gflags.FLAGS(sys.argv)
