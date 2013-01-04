@@ -326,3 +326,72 @@ class TwoLayerDataset(ImageSet):
             img = img[offset_y:offset_y + shorter_length,\
                       offset_x:offset_x + shorter_length]
         return img
+
+
+class SubImageSet(ImageSet):
+    def __init__(self, original_set, new_dim, stride):
+        """Create a dataset from the original data set by taking subimages from
+        the original images. For example, you can have an input image size of
+        256*256 and ask the code to produce images of 200*200 by densely taking
+        the 200*200 subwindows in it.
+        """
+        if original_set.dim() == False:
+            raise TypeError, \
+                "The original dataset should have images of the same size!"
+        super(SubImageSet, self).__init__()
+        self._original = original_set
+        self._dim = new_dim
+        self._stride = int(stride)
+        # compute how many images there are for each original image
+        self._nrows = (original_set.dim()[0] - new_dim[0]) / self._stride + 1
+        self._ncols = (original_set.dim()[1] - new_dim[1])/ self._stride + 1
+        self._count = self._nrows * self._ncols
+        # _last_call and _last_cache is used to store the original image of
+        # the last image() call, since the call is often carried out in a
+        # sequential way.
+        self._last_call = -1
+        self._last_cache = None
+        
+    def size(self):
+        """Return the size of the dataset hosted on the current node
+        """
+        return self._original.size() * self._count
+
+    def image(self, idx):
+        """ Returns datum 
+        
+        Note that you should almost never use data that is hosted on other
+        nodes - every node should deal with its data only.
+        """
+        if idx < 0 or idx >= self.size():
+            raise ValueError, "The index is out of bound."
+        original_idx = idx / self._count
+        if original_idx != self._last_call:
+            self._last_call = original_idx
+            self._last_cache = self._original.image(original_idx)
+        row_idx = (idx % self._count) / self._ncols * self._stride
+        col_idx = (idx % self._count) % self._ncols * self._stride
+        return self._last_cache[row_idx : row_idx + self._dim[0],
+                                col_idx : col_idx + self._dim[1]].copy()
+
+    def label(self, idx):
+        """ Returns the label for the corresponding datum
+        """
+        return self._original.label(idx / self._count)
+
+    def labels(self):
+        """ Returns the label vector for all the data I am hosting
+        """
+        old_labels = self._original.labels()
+        return np.tile(old_labels[:, np.newaxis], self._count).flatten()
+
+    def num_channels(self):
+        """ Returns the number of channels
+        """
+        return self._original.num_channels()
+
+    def get_all_from_original(self, idx):
+        """ Get all images from the original image of id given by idx
+        """
+        return [self.image(i) for i in range(idx * self._count,
+                                             (idx+1) * self._count)]
