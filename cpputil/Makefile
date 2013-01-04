@@ -1,6 +1,6 @@
 CC = g++
-CCFLAGS = -fPIC -O3 -Wall -pedantic -ansi -ffast-math -msse -msse2
-LINKFLAGS = -shared -Wl
+CCFLAGS = -fPIC -O3 -Wall -pedantic -ansi -ffast-math -msse -msse2 -fopenmp
+LINKFLAGS = -shared -Wl -lgomp
 INPUT = fastmath.cpp im2col.cpp clip.cpp
 TARGET = libcpputil.so
 all:

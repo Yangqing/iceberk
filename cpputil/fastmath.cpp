@@ -5,6 +5,8 @@
 #include <cstring>
 #include <cmath>
 
+# include <omp.h>
+
 #define MAXPOOL 0
 #define AVEPOOL 1
 #define RMSPOOL 2
@@ -29,6 +31,7 @@ int fastpooling(
     
     switch (method) {
     case MAXPOOL:
+        #pragma omp parallel for
         for (int i = 0; i < height; ++i) {
             int h_id = i * gridh / height;
             for (int j = 0; j < width; ++j) {
@@ -43,6 +46,7 @@ int fastpooling(
         } // loop over height
         break;
     case AVEPOOL:
+        #pragma omp parallel for
         for (int i = 0; i < height; ++i) {
             int h_id = i * gridh / height;
             for (int j = 0; j < width; ++j) {
@@ -56,6 +60,7 @@ int fastpooling(
             } // loop over width
         } // loop over height
         // Now, average
+        #pragma omp parallel for
         for (int i = 0; i < gridh * gridw; ++i) {
             int count = counts[i];
             for (int k = 0; k < nchannels; ++k) {
@@ -64,6 +69,7 @@ int fastpooling(
         }
         break;
     case RMSPOOL:
+        #pragma omp parallel for
         for (int i = 0; i < height; ++i) {
             int h_id = i * gridh / height;
             for (int j = 0; j < width; ++j) {
@@ -77,6 +83,7 @@ int fastpooling(
             } // loop over width
         } // loop over height
         // Now, normalize
+        #pragma omp parallel for
         for (int i = 0; i < gridh * gridw; ++i) {
             int count = counts[i];
             for (int k = 0; k < nchannels; ++k) {
