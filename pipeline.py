@@ -75,7 +75,6 @@ class ConvLayer(list):
         self._previous_layer = kwargs.pop('prev', None)
         self._fixed_size = kwargs.pop('fixed_size', False)
         super(ConvLayer, self).__init__(*args, **kwargs)
-        self._buffer = [None] * (len(self) + 1)
         
     def train(self, dataset, num_patches,
               exhaustive = False, ratio_per_image = 0.1):
@@ -111,18 +110,18 @@ class ConvLayer(list):
                 patches = component.process(patches)
         logging.debug("Training convolutional layer done.")
         
-    def process(self, image, as_vector = False):
+    def process(self, image, as_vector = False, buffer = None):
         output = image
         if self._previous_layer is not None:
             output = self._previous_layer.process(image)
-        if self._fixed_size:
-            self._buffer[0] = output
+        if buffer is not None:
+            buffer[0] = output
             for i, element in enumerate(self):
                 # provide buffer
-                self._buffer[i+1] = element.process(self._buffer[i],
-                                                    out=self._buffer[i+1])
+                buffer[i+1] = element.process(buffer[i],
+                                                    out = buffer[i+1])
             # in the end we produce a copy of the output
-            output = self._buffer[-1].copy()
+            output = buffer[-1].copy()
         else:
             for element in self:
                 output = element.process(output)
@@ -140,11 +139,17 @@ class ConvLayer(list):
             as_2d: if True, return a matrix where each image corresponds to a
                 row in the matrix. Default False.
         """
+        # check if we want to use buffer
+        if self._fixed_size:
+            buffer = [None] * (len(self) + 1)
+        else:
+            buffer = None
         total = dataset.size_total()
         logging.debug("Processing a total of %s images" % (total,))
         timer = util.Timer()
         if as_list:
-            data = [self.process(dataset.image(i)) for i in range(dataset.size())]
+            data = [self.process(dataset.image(i), buffer = buffer) \
+                    for i in range(dataset.size())]
         else:
             # we assume that each image leads to the same feature size
             temp = self.process(dataset.image(0), as_vector = as_2d)
@@ -152,7 +157,8 @@ class ConvLayer(list):
             data = np.empty((dataset.size(),) + temp.shape)
             data[0] = temp
             for i in range(1,dataset.size()):
-                data[i] = self.process(dataset.image(i), as_vector = as_2d)
+                data[i] = self.process(dataset.image(i), as_vector = as_2d,
+                                       buffer = buffer)
         mpi.barrier()
         logging.debug("Feature extration took %s" % timer.total())
         return data
@@ -166,11 +172,7 @@ class ConvLayer(list):
         extractor = IdenticalExtractor()
         return extractor.sample(dataset, num_patches, self, 
                                 exhaustive, ratio_per_image)
-    def __getstate__(self):
-        """ When we want to pickle this object, clean the buffer first
-        """
-        self._buffer = [None] * (len(self) + 1)
-        return dict(self.__dict__)
+
 
 class Extractor(Component):
     """Extractor is just an abstract class that holds all extractor subclasses
