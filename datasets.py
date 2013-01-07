@@ -395,3 +395,53 @@ class SubImageSet(ImageSet):
         """
         return [self.image(i) for i in range(idx * self._count,
                                              (idx+1) * self._count)]
+
+
+class CenterRegionSet(ImageSet):
+    def __init__(self, original_set, new_dim):
+        """Create a dataset from the original data set by taking the center of
+        the original images. For example, you can have an input image size of
+        256*256 and ask the code to produce an output image size of 200*200.
+        """
+        super(CenterRegionSet, self).__init__()
+        self._original = original_set
+        self._dim = np.asarray(new_dim)
+        # _last_call and _last_cache is used to store the original image of
+        # the last image() call, since the call is often carried out in a
+        # sequential way.
+        self._last_call = -1
+        self._last_cache = None
+        
+    def size(self):
+        """Return the size of the dataset hosted on the current node
+        """
+        return self._original.size()
+
+    def image(self, idx):
+        """ Returns datum 
+        
+        Note that you should almost never use data that is hosted on other
+        nodes - every node should deal with its data only.
+        """
+        if idx < 0 or idx >= self._original.size():
+            raise ValueError, "The index is out of bound."
+        img = self._original.image(idx)
+        old_shape = np.asarray(img.shape[:2])
+        offset = ((old_shape - self._dim) / 2).astype(np.int)
+        return img[offset[0]:offset[0]+self._dim[0],
+                   offset[1]:offset[1]+self._dim[1]].copy()
+
+    def label(self, idx):
+        """ Returns the label for the corresponding datum
+        """
+        return self._original.label(idx)
+
+    def labels(self):
+        """ Returns the label vector for all the data I am hosting
+        """
+        return self._original.labels()
+
+    def num_channels(self):
+        """ Returns the number of channels
+        """
+        return self._original.num_channels()
