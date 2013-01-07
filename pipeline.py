@@ -69,14 +69,13 @@ class ConvLayer(list):
         """Initialize a convolutional layer.
         Optional keyword parameters:
             prev: the previous convolutional layer. Default None.
-            fixed_inputsize: if set True, we assume that all input images have
+            fixed_size: if set True, we assume that all input images have
                 fixed shape - in this case we will have efficient buffer.
         """
         self._previous_layer = kwargs.pop('prev', None)
-        self._fixed_inputsize = kwargs.pop('fixed_inputsize', False)
+        self._fixed_size = kwargs.pop('fixed_size', False)
         super(ConvLayer, self).__init__(*args, **kwargs)
-        if self._fixed_inputsize:
-            self._buffer = [None] * (len(self) + 1)
+        self._buffer = [None] * (len(self) + 1)
         
     def train(self, dataset, num_patches,
               exhaustive = False, ratio_per_image = 0.1):
@@ -116,7 +115,7 @@ class ConvLayer(list):
         output = image
         if self._previous_layer is not None:
             output = self._previous_layer.process(image)
-        if self._fixed_inputsize:
+        if self._fixed_size:
             self._buffer[0] = output
             for i, element in enumerate(self):
                 # provide buffer
@@ -167,6 +166,11 @@ class ConvLayer(list):
         extractor = IdenticalExtractor()
         return extractor.sample(dataset, num_patches, self, 
                                 exhaustive, ratio_per_image)
+    def __getstate__(self):
+        """ When we want to pickle this object, clean the buffer first
+        """
+        self._buffer = [None] * (len(self) + 1)
+        return dict(self.__dict__)
 
 class Extractor(Component):
     """Extractor is just an abstract class that holds all extractor subclasses
@@ -621,7 +625,9 @@ class ThresholdEncoder(FeatureEncoder):
         alpha = self.specs.get('alpha', 0.25)
         # check if we would like to do two-side thresholding. Default yes.
         if self.specs.get('twoside', True):
-            # concatenate, and make sure to be C_CONTIGUOUS
+            # concatenate, and make sure the output is C_CONTIGUOUS
+            # for the temporary product, we check if we can utilize the
+            # buffer to save allocation time
             product = mathutil.dot_image(image, self.dictionary.T)
             imshape = product.shape[:-1]
             N = product.shape[-1]
@@ -642,7 +648,7 @@ class ThresholdEncoder(FeatureEncoder):
         out -= alpha
         np.clip(out, 0., np.inf, out=out)
         return out
-
+    
 
 class ReLUEncoder(ThresholdEncoder):
     """ ReLUEncoder is simply the threshold encoder with the alpha term set to
