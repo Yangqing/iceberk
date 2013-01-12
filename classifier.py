@@ -580,3 +580,8 @@ def svm_multiclass(X, Y, gamma, weight = None, **kwargs):
 def l2svm_multiclass(X, Y, gamma, weight = None, **kwargs):
     solver = SolverMC(gamma, Loss.loss_rank_squared_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
+
+def elasticnet_svm_multiclass(X, Y, gamma, weight = None, alpha = 0.5, **kwargs):
+    solver = SolverMC(gamma, Loss.loss_rank_squared_hinge, Reg.reg_elastic, 
+                      lossargs = {'alpha': alpha}, **kwargs)
+    return solver.solve(X, Y, weight)
