@@ -573,6 +573,13 @@ def l2svm_onevsall(X, Y, gamma, weight = None, **kwargs):
     solver = SolverMC(gamma, Loss.loss_squared_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
 
+def elasticnet_svm_onevsall(X, Y, gamma, weight = None, alpha = 0.5, **kwargs):
+    if Y.ndim == 1:
+        Y = to_one_of_k_coding(Y)
+    solver = SolverMC(gamma, Loss.loss_squared_hinge, Reg.reg_elastic, 
+                      lossargs = {'alpha': alpha}, **kwargs)
+    return solver.solve(X, Y, weight)
+
 def svm_multiclass(X, Y, gamma, weight = None, **kwargs):
     solver = SolverMC(gamma, Loss.loss_rank_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
