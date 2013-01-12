@@ -425,6 +425,18 @@ class Reg(object):
         g[g==0] = 0.5
         return np.abs(w).sum(), g
 
+    @staticmethod
+    def reg_elastic(w, **kwargs):
+        '''
+        elastic net regularization: (1-alpha) * ||w||_2^2 + alpha * ||w||_1
+        kwargs['alpha'] is the balancing weight, default 0.5
+        '''
+        alpha1 = kwargs.get('alpha', 0.5)
+        alpha2 = 1. - alpha1
+        f1, g1 = Reg.reg_l1(w, **kwargs)
+        f2, g2 = Reg.reg_l2(w, **kwargs)
+        return f1 * alpha1 + f2 * alpha2, g1 * alpha1 + g2 * alpha2
+
 class Evaluator(object):
     """Evaluator implements some commonly-used criteria for evaluation
     """
@@ -562,10 +574,22 @@ def l2svm_onevsall(X, Y, gamma, weight = None, **kwargs):
     solver = SolverMC(gamma, Loss.loss_squared_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
 
+def elasticnet_svm_onevsall(X, Y, gamma, weight = None, alpha = 0.5, **kwargs):
+    if Y.ndim == 1:
+        Y = to_one_of_k_coding(Y)
+    solver = SolverMC(gamma, Loss.loss_squared_hinge, Reg.reg_elastic, 
+                      lossargs = {'alpha': alpha}, **kwargs)
+    return solver.solve(X, Y, weight)
+
 def svm_multiclass(X, Y, gamma, weight = None, **kwargs):
     solver = SolverMC(gamma, Loss.loss_rank_hinge, Reg.reg_l2, **kwargs)
     return solver.solve(X, Y, weight)
 
 def l2svm_multiclass(X, Y, gamma, weight = None, **kwargs):
     solver = SolverMC(gamma, Loss.loss_rank_squared_hinge, Reg.reg_l2, **kwargs)
+    return solver.solve(X, Y, weight)
+
+def elasticnet_svm_multiclass(X, Y, gamma, weight = None, alpha = 0.5, **kwargs):
+    solver = SolverMC(gamma, Loss.loss_rank_squared_hinge, Reg.reg_elastic, 
+                      lossargs = {'alpha': alpha}, **kwargs)
     return solver.solve(X, Y, weight)
