@@ -781,13 +781,28 @@ class SpatialPooler(Pooler):
         grid = self.specs['grid']
         if type(grid) is int:
             grid = (grid, grid)
-        pooled = cpputil.fastpooling(image, grid, self.specs['method'])
-        # dummy implementation
-        if out is None:
-            return pooled
-        else:
-            out[:] = pooled
-            return out
+            self.specs['grid'] = grid
+        out = cpputil.fastpooling(image, grid, self.specs['method'], out = out)
+        return out
+
+
+class OvercompletePooler(Pooler):
+    """ The spatial Pooler that does overcomplete pooling on a regular grid.
+    specs:
+        grid: an int or a tuple indicating the basic pooling grid.
+        method: 'max', 'ave' or 'rms'.
+    """
+    def process(self, image, out = None):
+        if not (image.flags['C_CONTIGUOUS'] and image.dtype == np.float64):
+            logging.warning("Warning: the image is not contiguous.")
+            image = np.ascontiguousarray(image, dtype=np.float64)
+        grid = self.specs['grid']
+        if type(grid) is int:
+            grid = (grid, grid)
+            self.specs['grid'] = grid
+        out = cpputil.fast_oc_pooling(image, grid, self.specs['method'], 
+                                      out = out)
+        return out
 
 class PyramidPooler(MetaPooler):
     """PyramidPooler performs pyramid pooling.

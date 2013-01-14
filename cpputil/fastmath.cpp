@@ -21,7 +21,7 @@ int fastpooling(
         const int gridh, // The grid size along the height
         const int gridw, // The grid size along the width
         const int method, // The pooling method
-        double* const output // output pooled features, 
+        double* output // output pooled features, 
                              // [gridh*gridw*nchannels]
         )
 {
@@ -100,6 +100,107 @@ int fastpooling(
     return 0;
 }
 
+
+int fast_oc_pooling(
+        const double* const image, // Input image, [gridh*gridw*nchannels]
+        const int gridh, // The grid size along the height
+        const int gridw, // The grid size along the width
+        const int nchannels,
+        const int method, // The pooling method
+        double* output // output pooled features, 
+                             // [gridh*gridw*nchannels]
+        )
+{
+    int num_rfs = gridh * (gridh + 1) * gridw * (gridw + 1) / 4;
+    memset(output, 0, sizeof(double) * num_rfs * nchannels);
+    const double* image_pq;
+    double* output_pq = output;
+    switch (method) {
+    case MAXPOOL:
+        for (int i = 0; i < gridh; ++i) {
+            for (int j = i+1; j <= gridh; ++j) {
+                for (int k = 0; k < gridw; ++k) {
+                    for (int m = k+1; m <= gridw; ++m) {
+                        // pool the cube [i,j) * [k,m)
+                        for (int p = i; p < j; ++p) {
+                            for (int q = k; q < m; ++q) {
+                                image_pq = image + (p * gridw + q) * nchannels;
+                                for (int s = 0; s < nchannels; ++s) {
+                                    output_pq[s] = 
+                                        (output_pq[s] > image_pq[s]) ? 
+                                        output_pq[s] : image_pq[s];
+                                }
+                            }
+                        }
+                        output_pq += nchannels;
+                    } // m: end of w
+                } // k: start of w
+            } // j: end of h
+        } // i: start of h
+        break;
+    case AVEPOOL:
+        for (int i = 0; i < gridh; ++i) {
+            for (int j = i+1; j <= gridh; ++j) {
+                for (int k = 0; k < gridw; ++k) {
+                    for (int m = k+1; m <= gridw; ++m) {
+                        // pool the cube [i,j) * [k,m)
+                        for (int p = i; p < j; ++p) {
+                            for (int q = k; q < m; ++q) {
+                                image_pq = image + (p * gridw + q) * nchannels;
+                                for (int s = 0; s < nchannels; ++s) {
+                                    output_pq[s] += image_pq[s];
+                                }
+                            }
+                        }
+                        // Now, average
+                        int rf_size = (j-i) * (m-k);
+                        for (int s = 0; s < nchannels; ++s) {
+                            output_pq[s] /= rf_size;
+                        }
+                        output_pq += nchannels;
+                    } // m: end of w
+                } // k: start of w
+            } // j: end of h
+        } // i: start of h
+        break;
+    case RMSPOOL: {
+        int total_pixels = gridh * gridw * nchannels;
+        double* image2 = new double[total_pixels];
+        for (int i = 0; i < total_pixels; ++i) {
+            image2[i] = image[i] * image[i];
+        }
+        for (int i = 0; i < gridh; ++i) {
+            for (int j = i+1; j <= gridh; ++j) {
+                for (int k = 0; k < gridw; ++k) {
+                    for (int m = k+1; m <= gridw; ++m) {
+                        // pool the cube [i,j) * [k,m)
+                        for (int p = i; p < j; ++p) {
+                            for (int q = k; q < m; ++q) {
+                                image_pq = image2 + (p * gridw + q) * nchannels;
+                                for (int s = 0; s < nchannels; ++s) {
+                                    output_pq[s] += image_pq[s];
+                                }
+                            }
+                        }
+                        // Now, average
+                        int rf_size = (j-i) * (m-k);
+                        for (int s = 0; s < nchannels; ++s) {
+                            output_pq[s] = sqrt(output_pq[s] / rf_size);
+                        }
+                        output_pq += nchannels;
+                    } // m: end of w
+                } // k: start of w
+            } // j: end of h
+        } // i: start of h
+        delete[] image2;
+        }break;
+    default:
+        return 1;
+    }
+    return 0;
+}
+
+
 void fastsumx2(const double* const data, // input data
              const double* const mean, // input mean
              const int nrows, // num of rows
@@ -134,24 +235,7 @@ void fastsumx2(const double* const data, // input data
     }
 }
 
-void submatrix_add(const double* const submatrix,
-                   const int* const row_index,
-                   const int* const col_index,
-                   const int nrows,
-                   const int ncols,
-                   const int nsubrows,
-                   const int nsubcols,
-                   double* const data)
-{
-    for (int i = 0; i < nsubrows; ++i) {
-        int row = row_index[i];
-        for (int j = 0; j < nsubcols; ++j) {
-            int col = col_index[j];
-            data[row * ncols + col] += submatrix[i * nsubcols + j];
-        }
-    }
-}
-	
+    
 
 } // extern "C"
 

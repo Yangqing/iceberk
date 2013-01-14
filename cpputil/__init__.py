@@ -17,6 +17,7 @@ except Exception, e:
 ################################################################################
 # fast pooling
 ################################################################################
+_POOL_METHODS = {'max':0, 'ave': 1, 'rms': 2}
 _CPPUTIL.fastpooling.restype = ct.c_int
 _CPPUTIL.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
                                       ct.c_int, # height
@@ -27,10 +28,20 @@ _CPPUTIL.fastpooling.argtypes = [ct.POINTER(ct.c_double), # image
                                       ct.c_int, # method
                                       ct.POINTER(ct.c_double) # output
                                      ]
-_POOL_METHODS = {'max':0, 'ave': 1, 'rms': 2}
+_CPPUTIL.fast_oc_pooling.restype = ct.c_int
+_CPPUTIL.fast_oc_pooling.argtypes = [ct.POINTER(ct.c_double), # image
+                                      ct.c_int, # grid[0]
+                                      ct.c_int, # grid[1]
+                                      ct.c_int, # num_channels
+                                      ct.c_int, # method
+                                      ct.POINTER(ct.c_double) # output
+                                     ]
 
-def fastpooling(image, grid, method):
-    output = np.empty((grid[0], grid[1], image.shape[-1]))
+def fastpooling(image, grid, method, out = None):
+    if out is None:
+        output = np.empty((grid[0], grid[1], image.shape[-1]))
+    else:
+        output.resize(grid[0], grid[1], image.shape[-1])
     _CPPUTIL.fastpooling(
             image.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(image.shape[0]),
@@ -38,6 +49,24 @@ def fastpooling(image, grid, method):
             ct.c_int(image.shape[2]),
             ct.c_int(grid[0]),
             ct.c_int(grid[1]),
+            ct.c_int(_POOL_METHODS[method]),
+            output.ctypes.data_as(ct.POINTER(ct.c_double)))
+    return output
+
+def fast_oc_pooling(image, grid, method, out = None):
+    num_output = grid[0] * (grid[0] + 1) * grid[1] * (grid[1] + 1) / 4
+    if out is None:
+        output = np.empty((num_output, image.shape[-1]))
+    else:
+        output.resize(num_output, image.shape[-1])
+    if image.shape[0] != grid[0] or image.shape[1] != grid[1]:
+        # do a first pass fast pooling
+        image = fastpooling(image, grid, method)
+    _CPPUTIL.fast_oc_pooling(
+            image.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.c_int(grid[0]),
+            ct.c_int(grid[1]),
+            ct.c_int(image.shape[2]),
             ct.c_int(_POOL_METHODS[method]),
             output.ctypes.data_as(ct.POINTER(ct.c_double)))
     return output
@@ -113,36 +142,6 @@ def column_meanstd(mat):
     np.sqrt(std, out=std)
     return m, std
 
-################################################################################
-# fast submatrix operation
-################################################################################
-_CPPUTIL.submatrix_add.restype = None
-_CPPUTIL.submatrix_add.argtypes = [ct.POINTER(ct.c_double),
-                                    ct.POINTER(ct.c_int),
-                                    ct.POINTER(ct.c_int),
-                                    ct.c_int,
-                                    ct.c_int,
-                                    ct.c_int,
-                                    ct.c_int,
-                                    ct.POINTER(ct.c_double)]
-
-def submatrix_add(submat, rowid, colid, mat):
-    """Adds a submatrix to the original matrix by giving the row and column ids.
-    """
-    if submat.flags['C_CONTIGUOUS'] != True or submat.dtype != np.float64 \
-            or mat.flags['C_CONTIGUOUS'] != True or mat.dtype != np.float64:
-        raise ValueError, "Unsupported input matrix."
-    rowid = rowid.astype(ct.c_int)
-    colid = colid.astype(ct.c_int)
-    _CPPUTIL.submatrix_add(submat.ctypes.data_as(ct.POINTER(ct.c_double)),
-                            rowid.ctypes.data_as(ct.POINTER(ct.c_int)),
-                            colid.ctypes.data_as(ct.POINTER(ct.c_int)),
-                            ct.c_int(mat.shape[0]),
-                            ct.c_int(mat.shape[1]),
-                            ct.c_int(rowid.size),
-                            ct.c_int(colid.size),
-                            mat.ctypes.data_as(ct.POINTER(ct.c_double))
-                            )
 
 ################################################################################
 # im2col operation
