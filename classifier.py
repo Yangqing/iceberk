@@ -308,10 +308,11 @@ class Loss(object):
         '''
         margin = np.maximum(0., 1. - Y * pred)
         if weight is None:
-            return np.dot(margin.flat, margin.flat), -2.*Y*margin
+            return np.dot(margin.flat, margin.flat), -2. * Y * margin
         else:
-            return np.dot(weight, margin**2).sum(), -2.*Y*weight*margin
-        
+            wm = weight[:, np.newaxis] * margin
+            return np.dot(wm.flat, margin.flat), -2. * Y * wm
+
     @staticmethod
     def loss_bnll(Y,pred,weight,**kwargs):
         '''
