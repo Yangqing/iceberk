@@ -39,9 +39,9 @@ _CPPUTIL.fast_oc_pooling.argtypes = [ct.POINTER(ct.c_double), # image
 
 def fastpooling(image, grid, method, out = None):
     if out is None:
-        output = np.empty((grid[0], grid[1], image.shape[-1]))
+        out = np.empty((grid[0], grid[1], image.shape[-1]))
     else:
-        output.resize(grid[0], grid[1], image.shape[-1])
+        out.resize(grid[0], grid[1], image.shape[-1])
     _CPPUTIL.fastpooling(
             image.ctypes.data_as(ct.POINTER(ct.c_double)),
             ct.c_int(image.shape[0]),
@@ -50,8 +50,8 @@ def fastpooling(image, grid, method, out = None):
             ct.c_int(grid[0]),
             ct.c_int(grid[1]),
             ct.c_int(_POOL_METHODS[method]),
-            output.ctypes.data_as(ct.POINTER(ct.c_double)))
-    return output
+            out.ctypes.data_as(ct.POINTER(ct.c_double)))
+    return out
 
 def fast_oc_pooling(image, grid, method, out = None):
     num_output = grid[0] * (grid[0] + 1) * grid[1] * (grid[1] + 1) / 4
