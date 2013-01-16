@@ -32,18 +32,18 @@ int fastpooling(
     switch (method) {
     case MAXPOOL:
         #pragma omp parallel for
-        for (int i = 0; i < height; ++i) {
-            int h_id = i * gridh / height;
-            for (int j = 0; j < width; ++j) {
-                int w_id = j * gridw / width;
-                const double* image_hw = image + (i * width + j) * nchannels;
-                double* output_hw = output + (h_id * gridw + w_id) * nchannels;
-                for (int k = 0; k < nchannels; ++k) {
-                    output_hw[k] = (output_hw[k] > image_hw[k]) ? 
-                                    output_hw[k] : image_hw[k];
-                } // loop over channels
-            } // loop over width
-        } // loop over height
+        for (int k = 0; k < nchannels; ++k) {
+            for (int i = 0; i < height; ++i) {
+                int h_id = i * gridh / height;
+                for (int j = 0; j < width; ++j) {
+                    int w_id = j * gridw / width;
+                    const double* image_hw = image + (i * width + j) * nchannels;
+                    double* output_hw = output + (h_id * gridw + w_id) * nchannels;
+                        output_hw[k] = (output_hw[k] > image_hw[k]) ? 
+                                        output_hw[k] : image_hw[k];
+                } // loop over width
+            } // loop over height
+        } // loop over channels
         break;
     case AVEPOOL:
         #pragma omp parallel for
@@ -53,8 +53,10 @@ int fastpooling(
                 int w_id = j * gridw / width;
                 const double* image_hw = image + (i * width + j) * nchannels;
                 double* output_hw = output + (h_id * gridw + w_id) * nchannels;
+                #pragma omp atomic
                 ++counts[h_id * gridw + w_id];
                 for (int k = 0; k < nchannels; ++k) {
+                    #pragma omp atomic
                     output_hw[k] += image_hw[k];
                 } // loop over channels
             } // loop over width
@@ -76,9 +78,12 @@ int fastpooling(
                 int w_id = j * gridw / width;
                 const double* image_hw = image + (i * width + j) * nchannels;
                 double* output_hw = output + (h_id * gridw + w_id) * nchannels;
+                #pragma omp atomic
                 ++counts[h_id * gridw + w_id];
                 for (int k = 0; k < nchannels; ++k) {
-                    output_hw[k] += image_hw[k] * image_hw[k];
+                    double sqvalue = image_hw[k] * image_hw[k];
+                    #pragma omp atomic
+                    output_hw[k] += sqvalue;
                 } // loop over channels
             } // loop over width
         } // loop over height
@@ -200,42 +205,6 @@ int fast_oc_pooling(
     return 0;
 }
 
-
-void fastsumx2(const double* const data, // input data
-             const double* const mean, // input mean
-             const int nrows, // num of rows
-             const int ncols, // num of cols
-             const int axis, // axis along which to do sumx2
-             double* const sumx2 // output sumx2
-             )
-{
-    int num_data;
-    int num_output;
-    double datum;
-    if (axis == 0) {
-        num_data = nrows;
-        num_output = ncols;
-        memset(sumx2, 0, sizeof(double) * num_output);
-        for (int i = 0; i < nrows; ++i) {
-            for (int j = 0; j < ncols; ++j) {
-                datum = data[i*ncols+j] - mean[j];
-                sumx2[j] += datum * datum;
-            }
-        }
-    } else {
-        num_data = ncols;
-        num_output = nrows;
-        memset(sumx2, 0, sizeof(double) * num_output);
-        for (int i = 0; i < nrows; ++i) {
-            for (int j = 0; j < ncols; ++j) {
-                datum = data[i*ncols+j] - mean[i];
-                sumx2[i] += datum * datum;
-            }
-        }
-    }
-}
-
-    
 
 } // extern "C"
 

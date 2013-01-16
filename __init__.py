@@ -23,5 +23,3 @@ External dependencies
     sklearn 
       \-metrics
 """
-
-from iceberk import pipeline, datasets, visualize

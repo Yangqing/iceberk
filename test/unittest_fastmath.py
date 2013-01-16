@@ -66,53 +66,6 @@ class TestFastpool(unittest.TestCase):
                         shape = cpputil.fastpooling(data, grid, 'max').shape
                         self.assertEqual(shape, grid + (channel,))
 
-class TestMeanStd(unittest.TestCase):
-    """Test the mpi module
-    """
-    
-    def testFastStdNoMPI(self):
-        mat = np.random.rand(20,10)
-        # test no mean case
-        for axis in range(2):
-            std_test = cpputil.fast_std_nompi(mat, axis)
-            std = np.std(mat, axis)
-            np.testing.assert_almost_equal(std, std_test)
-        # test mean case
-        for axis in range(2):
-            std_test = cpputil.fast_std_nompi(mat, axis, np.mean(mat, axis))
-            std = np.std(mat, axis)
-            np.testing.assert_almost_equal(std, std_test)
-    
-    def testMeanStd(self):
-        mat = np.random.rand(20,10)
-        m_test, std_test = cpputil.column_meanstd(mat)
-        mats = mpi.COMM.gather(mat)
-        if mpi.is_root():
-            mats = np.vstack(mats)
-            m = mats.mean(0)
-            std = mats.std(0)
-        else:
-            m = None
-            std = None
-        m = mpi.COMM.bcast(m)
-        std = mpi.COMM.bcast(std)
-        np.testing.assert_almost_equal(m, m_test)
-        np.testing.assert_almost_equal(std, std_test)
-
-"""
-    def testMeanStd_large(self):
-        try:
-            mat = np.random.rand(100000, 1000)
-            for axis in range(2):
-                m, std = cpputil.meanstd(mat, axis)
-                np.testing.assert_almost_equal(m, mat.mean(axis))
-                np.testing.assert_almost_equal(std, mat.std(axis))
-        except MemoryError:
-            print 'skipped large matrix test'
-            return
-"""
-        
-        
 
 if __name__ == '__main__':
     unittest.main()
