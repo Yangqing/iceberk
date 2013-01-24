@@ -1,6 +1,13 @@
-# this script allows you to verify if the imagenet ILSVRC images you downloaded
-# are correct (i.e., images are not corrupted). You can run them in parallel if
-# you have multiple machines.
+"""
+This script allows you to verify if the imagenet ILSVRC images you downloaded
+are correct (i.e., images are not corrupted). You can run them in parallel if
+you have multiple machines.
+
+We found that there is one image (an image that contains a monkey) that is
+actually a valid JPEG image, but cannot be read in python using our code (based
+on PIL). If this happens in your case, open the file using gimp or any image
+editing software, re-save it, and you should be good.
+"""
 
 from iceberk import mpi
 import gflags, glob, logging, os, sys
