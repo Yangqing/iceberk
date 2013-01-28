@@ -319,6 +319,7 @@ class TwoLayerDataset(ImageSet):
             files = None
             classnames = None
             labels = None
+        mpi.barrier()
         self._rawdata = mpi.distribute_list(files)
         self._data = self._rawdata
         self._prefetch = prefetch
