@@ -17,7 +17,7 @@ def imread_rgb(fname):
     try:
         return np.asarray(Image.open(fname,'r').convert('RGB'))
     except Exception, e:
-        logging.error("Involved image filename: %s" % (fname))
+        logging.error("Error reading image filename: %s" % (fname))
         raise Exception, e
 
 def lena():
