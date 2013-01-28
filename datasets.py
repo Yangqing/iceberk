@@ -26,6 +26,52 @@ def lena():
     fname = os.path.join(os.path.dirname(__file__), 'test', 'data', 'lena.png')
     return imread_rgb(fname)
 
+def manipulate(img, target_size, max_size, min_size, center_crop):
+    """Manipulates the input image. The following parameters are implemented:
+    target_size: if provided, all images are resized to the size 
+        specified. Should be a list of two integers, like [640,480].
+        Note that this option may skew the images.
+    max_size: if provided, any image that is larger than the max size
+        is scaled so that its larger edge has max_size. If max_size is
+        negative, all images are scaled (i.e. smaller images are scaled
+        up). If target_size is set, max_size takes no effect.
+    min_size: if provided, any image that is smaller than the min size
+        is scaled so that its smaller edge has min_size. If min_size is
+        negative, all images are scaled (i.e. larger images are scaled
+        down). If target_size or max_size is set, min_size takes no 
+        effect.
+    center_crop: if given a number, the center of the image is cropped.
+        Output image will be a square one with length being that of the
+        shorter dimension of the original image. The image is then
+        resized to the number given by center_crop.
+    The order we carry out the manipulation is to check target size,
+    then max_size, then min_size, then center_crop.
+    """
+    if target_size is not None:
+        img = misc.imresize(img, target_size)
+    elif max_size is not None:
+        if max_size < 0 or max(img.shape[:2]) > max_size:
+            newsize = np.asarray(img.shape[:2]) * np.abs(max_size) \
+                    / max(img.shape[:2])
+            img = transform.resize(img, newsize,\
+                                   mode='nearest')
+    elif min_size is not None:
+        if min_size < 0 or min(img.shape[:2]) < min_size:
+            newsize = np.asarray(img.shape[:2]) * np.abs(min_size) \
+                    / min(img.shape[:2])
+            img = transform.resize(img, newsize.astype(int),\
+                                   mode='nearest')
+    if center_crop is not None:
+        # crop the center part of the image
+        shorter_length = min(img.shape[:2])
+        offset_y = int((img.shape[0] - shorter_length) / 2)
+        offset_x = int((img.shape[1] - shorter_length) / 2)
+        img = img[offset_y:offset_y + shorter_length,\
+                  offset_x:offset_x + shorter_length]
+        img = transform.resize(img, [center_crop, center_crop],
+                               mode='nearest')
+    return img
+
 
 class ImageSet(object):
     """The basic structure that stores data. This class should be MPI ready.
@@ -245,21 +291,8 @@ class TwoLayerDataset(ImageSet):
             prefetch: if True, the images are prefetched to avoid disk read. If
                 you have a large number of images, prefetch would require a lot
                 of memory.
-            target_size: if provided, all images are resized to the size 
-                specified. Should be a list of two integers, like [640,480].
-                Note that this option may skew the images.
-            max_size: if provided, any image that is larger than the max size
-                is scaled so that its larger edge has max_size. If max_size is
-                negative, all images are scaled (i.e. smaller images are scaled
-                up). If target_size is set, max_size takes no effect.
-            min_size: if provided, any image that is smaller than the min size
-                is scaled so that its smaller edge has min_size. If min_size is
-                negative, all images are scaled (i.e. larger images are scaled
-                down). If target_size or max_size is set, min_size takes no 
-                effect.
-            center_crop: if True, the center of the image is cropped, and the
-                output image will be a square one with length being that of the
-                shorter dimension of the original image.
+            target_size, max_size, min_size, center_crop: see manipulate() for
+                details.
         """
         super(TwoLayerDataset, self).__init__()
         if mpi.agree(not os.path.exists(root_folder)):
@@ -267,6 +300,7 @@ class TwoLayerDataset(ImageSet):
         logging.debug('Loading from %s' % (root_folder,))
         if type(extensions) is str:
             extensions = [extensions]
+        extensions = set(extensions)
         if mpi.is_root():
             # get files first
             files = glob.glob(os.path.join(root_folder, '*', '*'))
@@ -304,28 +338,8 @@ class TwoLayerDataset(ImageSet):
     
     def _read(self, idx):
         img = imread_rgb(self._rawdata[idx])
-        if self._target_size is not None:
-            img = misc.imresize(img, self._target_size)
-        elif self._max_size is not None:
-            if self._max_size < 0 or max(img.shape[:2]) > self._max_size:
-                newsize = np.asarray(img.shape[:2]) * np.abs(self._max_size) \
-                        / max(img.shape[:2])
-                img = transform.resize(img, newsize,\
-                                       mode='nearest')
-        elif self._min_size is not None:
-            if self._min_size < 0 or min(img.shape[:2]) < self._min_size:
-                newsize = np.asarray(img.shape[:2]) * np.abs(self._min_size) \
-                        / min(img.shape[:2])
-                img = transform.resize(img, newsize.astype(int),\
-                                       mode='nearest')
-        if self._center_crop is True:
-            # crop the center part of the image
-            shorter_length = min(img.shape[:2])
-            offset_y = int((img.shape[0] - shorter_length) / 2)
-            offset_x = int((img.shape[1] - shorter_length) / 2)
-            img = img[offset_y:offset_y + shorter_length,\
-                      offset_x:offset_x + shorter_length]
-        return img
+        return manipulate(img, self._target_size,
+                self._max_size, self._min_size, self._center_crop)
 
 
 class SubImageSet(ImageSet):
