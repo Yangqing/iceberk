@@ -156,9 +156,15 @@ class ConvLayer(list):
             logging.debug("Output feature shape: %s" % (str(temp.shape)))
             data = np.empty((dataset.size(),) + temp.shape)
             data[0] = temp
-            for i in range(1,dataset.size()):
+            size = dataset.size()
+            timer = util.Timer()
+            for i in range(1,size):
                 data[i] = self.process(dataset.image(i), as_vector = as_2d,
                                        buffer = buffer)
+                # report local progress
+                if (i * 10 / size) != ((i-1) * 10 / size):
+                    logging.debug("rank %d: %d percent. elapsed %s" % \
+                            (mpi.RANK, i*100 / size, timer.total()))
         mpi.barrier()
         logging.debug("Feature extration took %s" % timer.total())
         return data
