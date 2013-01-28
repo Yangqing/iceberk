@@ -42,7 +42,7 @@ class Component(object):
         
         Input:
             image: an Ndarray where the feature is along the last axis
-            out: optionally, input an Ndarray as the preallocated output buffer.
+            out: optionally, pass in an Ndarray as the preallocated buffer.
         Output:
             out: an Ndarray, whose size only differes from image on the
                 last dimension. It should be the output to the next layer.
@@ -110,18 +110,18 @@ class ConvLayer(list):
                 patches = component.process(patches)
         logging.debug("Training convolutional layer done.")
         
-    def process(self, image, as_vector = False, buffer = None):
+    def process(self, image, as_vector = False, convbuffer = None):
         output = image
         if self._previous_layer is not None:
             output = self._previous_layer.process(image)
-        if buffer is not None:
-            buffer[0] = output
+        if convbuffer is not None:
+            convbuffer[0] = output
             for i, element in enumerate(self):
                 # provide buffer
-                buffer[i+1] = element.process(buffer[i],
-                                                    out = buffer[i+1])
+                convbuffer[i+1] = element.process(convbuffer[i],
+                                                    out = convbuffer[i+1])
             # in the end we produce a copy of the output
-            output = buffer[-1].copy()
+            output = convbuffer[-1].copy()
         else:
             for element in self:
                 output = element.process(output)
@@ -141,14 +141,14 @@ class ConvLayer(list):
         """
         # check if we want to use buffer
         if self._fixed_size:
-            buffer = [None] * (len(self) + 1)
+            convbuffer = [None] * (len(self) + 1)
         else:
-            buffer = None
+            convbuffer = None
         total = dataset.size_total()
         logging.debug("Processing a total of %s images" % (total,))
         timer = util.Timer()
         if as_list:
-            data = [self.process(dataset.image(i), buffer = buffer) \
+            data = [self.process(dataset.image(i), convbuffer = convbuffer) \
                     for i in range(dataset.size())]
         else:
             # we assume that each image leads to the same feature size
@@ -160,7 +160,7 @@ class ConvLayer(list):
             timer = util.Timer()
             for i in range(1,size):
                 data[i] = self.process(dataset.image(i), as_vector = as_2d,
-                                       buffer = buffer)
+                                       convbuffer = convbuffer)
                 # report local progress
                 if (i * 10 / size) != ((i-1) * 10 / size):
                     logging.debug("rank %d: %d percent. elapsed %s" % \
