@@ -16,6 +16,10 @@ from iceberk import cpputil, mpi, mathutil
 import gc
 import logging
 import numpy as np
+# The inner1d function is imported here to do more memory-efficient sum of
+# squares. For example, if a.size = [300,100], inner1d(a,a) is equivalent to
+# (a**2).sum(axis=1) but does not create additional space.
+from numpy.core.umath_tests import inner1d
 from scipy import optimize
 from sklearn import metrics
 
@@ -270,6 +274,90 @@ class Loss(object):
     Input:
         Y:    a vector or matrix of true labels
         pred: prediction, has the same shape as Y.
+    Return:
+        f: the loss function value
+        g: the gradient w.r.t. pred, has the same shape as pred.
+    """
+    def __init__(self):
+        """All functions in Loss should be static
+        """
+        raise NotImplementedError, "Loss should not be instantiated!"
+     
+    @staticmethod
+    def loss_l2(Y, pred, weight, **kwargs):
+        '''
+        The l2 loss: f = ||Y - pred||_{fro}^2
+        '''
+        diff = pred - Y
+        if weight is None:
+            return np.dot(diff.flat, diff.flat), 2.*diff 
+        else:
+            return np.dot((diff**2).sum(1), weight), \
+                   2.*diff*weight[:,np.newaxis]
+         
+    @staticmethod
+    def loss_hinge(Y, pred, weight, **kwargs):
+        '''The SVM hinge loss. Input vector Y should have values 1 or -1
+        '''
+        margin = np.maximum(0., 1. - Y * pred)
+        if weight is None:
+            f = margin.sum()
+            g = - Y * (margin>0)
+        else:
+            f = np.dot(weight, margin).sum()
+            g = - Y * weight[:, np.newaxis] * (margin>0)
+        return f, g
+     
+    @staticmethod
+    def loss_squared_hinge(Y,pred,weight,**kwargs):
+        ''' The squared hinge loss. Input vector Y should have values 1 or -1
+        '''
+        margin = np.maximum(0., 1. - Y * pred)
+        if weight is None:
+            return np.dot(margin.flat, margin.flat), -2. * Y * margin
+        else:
+            wm = weight[:, np.newaxis] * margin
+            return np.dot(wm.flat, margin.flat), -2. * Y * wm
+ 
+    @staticmethod
+    def loss_bnll(Y,pred,weight,**kwargs):
+        '''
+        the BNLL loss: f = log(1 + exp(-y * pred))
+        '''
+        # expnyp is exp(-y * pred)
+        expnyp = mathutil.exp(-Y*pred)
+        expnyp_plus = 1. + expnyp
+        if weight is None:
+            return np.sum(np.log(expnyp_plus)), -Y * expnyp / expnyp_plus
+        else:
+            return np.dot(weight, np.log(expnyp_plus)).sum(), \
+                   - Y * weight * expnyp / expnyp_plus
+ 
+    @staticmethod
+    def loss_multiclass_logistic(Y, pred, weight, **kwargs):
+        """The multiple class logistic regression loss function
+         
+        The input Y should be a 0-1 matrix 
+        """
+        # normalized prediction and avoid overflowing
+        prob = pred - pred.max(axis=1)[:,np.newaxis]
+        mathutil.exp(prob, out=prob)
+        prob /= prob.sum(axis=1)[:, np.newaxis]
+        g = prob - Y
+        # take the log
+        mathutil.log(prob, out=prob)
+        return -np.dot(prob.flat, Y.flat), g
+
+
+class Loss2(object):
+    """LOSS2 defines commonly used loss functions, rewritten with the gradient
+    value cached (provided by the caller) for large-scale problems to save
+    memory allocation / deallocation time.
+    
+    For all loss functions:
+    Input:
+        Y:    a vector or matrix of true labels
+        pred: prediction, has the same shape as Y.
         weight: the weight for each data point.
         gpred: the pre-assigned numpy array to store the gradient. We force
             gpred to be preassigned to save memory allocation time in large
@@ -309,49 +397,42 @@ class Loss(object):
     def loss_hinge(Y, pred, weight, gpred, **kwargs):
         '''The SVM hinge loss. Input vector Y should have values 1 or -1
         '''
-        # compute margin = np.maximum(0., 1. - Y * pred)
         gpred[:] = pred
-        gpred *= - Y
+        gpred *= Y
+        gpred *= -1
         gpred += 1.
         np.clip(gpred, 0, np.inf, out=gpred)
         if weight is None:
-            #f = margin.sum()
-            #g = - Y * (margin>0)
             f = gpred.sum()
             gpred[:] = (gpred > 0)
-            gpred *= -Y
+            gpred *= Y
+            gpred *= -1
         else:
-            #f = np.dot(weight, margin).sum()
-            #g = - Y * weight * (margin>0)
             f = np.dot(weight, gpred.sum(axis=1))
-            gpred[0] = (gpred > 0)
-            gpred *= - Y * weight
+            gpred[:] = (gpred > 0)
+            gpred *= Y
+            gpred *= - weight[:, np.newaxis]
         return f, gpred
     
     @staticmethod
-    def loss_squared_hinge(Y,pred,weight,**kwargs):
+    def loss_squared_hinge(Y, pred, weight, gpred, **kwargs):
         ''' The squared hinge loss. Input vector Y should have values 1 or -1
         '''
-        margin = np.maximum(0., 1. - Y * pred)
+        gpred[:] = pred
+        gpred *= Y
+        gpred *= -1
+        gpred += 1.
+        np.clip(gpred, 0, np.inf, out=gpred)
         if weight is None:
-            return np.dot(margin.flat, margin.flat), -2. * Y * margin
+            f = np.dot(gpred.flat, gpred.flat)
+            gpred *= Y
+            gpred *= -2
         else:
-            wm = weight[:, np.newaxis] * margin
-            return np.dot(wm.flat, margin.flat), -2. * Y * wm
-
-    @staticmethod
-    def loss_bnll(Y,pred,weight,**kwargs):
-        '''
-        the BNLL loss: f = log(1 + exp(-y * pred))
-        '''
-        # expnyp is exp(-y * pred)
-        expnyp = mathutil.exp(-Y*pred)
-        expnyp_plus = 1. + expnyp
-        if weight is None:
-            return np.sum(np.log(expnyp_plus)), -Y * expnyp / expnyp_plus
-        else:
-            return np.dot(weight, np.log(expnyp_plus)).sum(), \
-                   - Y * weight * expnyp / expnyp_plus
+            gprednorm = inner1d(gpred,gpred)
+            f = np.dot(gprednorm, weight)
+            gpred *= Y
+            gpred *= (-2 * weight[:, np.newaxis])
+        return f, gpred
 
     @staticmethod
     def loss_multiclass_logistic(Y, pred, weight, gpred, **kwargs):
@@ -359,8 +440,9 @@ class Loss(object):
         
         The input Y should be a 0-1 matrix 
         """
-        # normalized prediction and avoid overflowing
-        prob = pred - pred.max(axis=1)[:,np.newaxis]
+        # normalize prediction to avoid overflowing
+        prob = pred.copy()
+        prob -= pred.max(axis=1)[:,np.newaxis]
         mathutil.exp(prob, out=prob)
         prob /= prob.sum(axis=1)[:, np.newaxis]
         gpred[:] = prob
@@ -368,61 +450,6 @@ class Loss(object):
         # take the log
         mathutil.log(prob, out=prob)
         return -np.dot(prob.flat, Y.flat), gpred
-
-
-    @staticmethod
-    def loss_rank_hinge(Y, pred, weight, **kwargs):
-        """The rank loss: the score of the true label should be higher
-        than the other scores by a margin, and hinge loss is used to compute
-        the loss.
-        
-        Input:
-            Y: a vector indicating the true labels
-            pred: a matrix indicating the scores for each label
-        """
-        N = len(Y)
-        score_gt = pred[np.arange(N), Y]
-        diff = pred - (score_gt-1.)[:, np.newaxis]
-        # diff_hinge will be the hinge loss for each class, except for the 
-        # ground truth where it should be 0 (instead of 1)
-        diff_hinge = np.maximum(diff, 0.)
-        if weight is None:
-            # for the loss we will subtract N due to the ground truth offset
-            f = diff_hinge.sum() - N
-            # for the gradient of non-ground truth predictions, it's simply
-            # a boolean value. For the ground truth prediction, it's the sum of
-            # the violations
-            g = (diff > 0).astype(np.float64)
-            g[np.arange(N), Y] = 1. - g.sum(axis=1)
-        else:
-            raise NotImplementedError
-        return f, g
-    
-    @staticmethod
-    def loss_rank_squared_hinge(Y, pred, weight, **kwargs):
-        """The rank-based squared hinge loss
-        """
-        raise NotImplementedError, "Yangqing still needs to debug this"
-        N = len(Y)
-        score_gt = pred[np.arange(N), Y]
-        diff = pred - (score_gt-1.)[:, np.newaxis]
-        # diff_hinge will be the hinge loss for each class, except for the 
-        # ground truth where it should be 0 (instead of 1)
-        diff_hinge = np.maximum(diff, 0.)
-        if weight is None:
-            # for the loss we will subtract N due to the ground truth offset
-            f = np.dot(diff_hinge.flat, diff_hinge.flat) - N
-            # for the gradient of non-ground truth predictions, it's simply
-            # a boolean value. For the ground truth prediction, it's the sum of
-            # the violations
-            g = 2. * diff_hinge
-            g[np.arange(N), Y] = 2. - g.sum(axis=1)
-        else:
-            f = np.dot(weight, diff_hinge).sum()
-            g = - 2. * diff_hinge
-            g[np.arange(N), Y] = 2. - g.sum(axis=1)
-            g *= weight[:, np.newaxis]
-        return f, g
 
 
 class Reg(object):
@@ -605,18 +632,5 @@ def elasticnet_svm_onevsall(X, Y, gamma, weight = None, alpha = 0.5, **kwargs):
     if Y.ndim == 1:
         Y = to_one_of_k_coding(Y)
     solver = SolverMC(gamma, Loss.loss_squared_hinge, Reg.reg_elastic, 
-                      lossargs = {'alpha': alpha}, **kwargs)
-    return solver.solve(X, Y, weight)
-
-def svm_multiclass(X, Y, gamma, weight = None, **kwargs):
-    solver = SolverMC(gamma, Loss.loss_rank_hinge, Reg.reg_l2, **kwargs)
-    return solver.solve(X, Y, weight)
-
-def l2svm_multiclass(X, Y, gamma, weight = None, **kwargs):
-    solver = SolverMC(gamma, Loss.loss_rank_squared_hinge, Reg.reg_l2, **kwargs)
-    return solver.solve(X, Y, weight)
-
-def elasticnet_svm_multiclass(X, Y, gamma, weight = None, alpha = 0.5, **kwargs):
-    solver = SolverMC(gamma, Loss.loss_rank_squared_hinge, Reg.reg_elastic, 
                       lossargs = {'alpha': alpha}, **kwargs)
     return solver.solve(X, Y, weight)
