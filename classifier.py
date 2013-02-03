@@ -13,11 +13,11 @@ solver, and if the loss function or regularizer is not differentiable everywhere
 '''
 
 from iceberk import cpputil, mpi, mathutil
+import gc
 import logging
 import numpy as np
 from scipy import optimize
 from sklearn import metrics
-
 
 _FMIN = optimize.fmin_l_bfgs_b
 
@@ -195,6 +195,8 @@ class SolverMC(Solver):
     '''
     
     def presolve(self, X, Y, weight, param_init):
+        logging.debug("Running an explicit garbage collection...")
+        gc.collect()
         self._X = X.reshape((X.shape[0],np.prod(X.shape[1:])))
         if len(Y.shape) == 1:
             self._K = mpi.COMM.allreduce(Y.max(), op=max) + 1
@@ -268,9 +270,13 @@ class Loss(object):
     Input:
         Y:    a vector or matrix of true labels
         pred: prediction, has the same shape as Y.
+        weight: the weight for each data point.
+        gpred: the pre-assigned numpy array to store the gradient. We force
+            gpred to be preassigned to save memory allocation time in large
+            scales.
     Return:
         f: the loss function value
-        g: the gradient w.r.t. pred, has the same shape as pred.
+        gpred: the gradient w.r.t. pred, has the same shape as pred.
     """
     def __init__(self):
         """All functions in Loss should be static
@@ -278,29 +284,49 @@ class Loss(object):
         raise NotImplementedError, "Loss should not be instantiated!"
     
     @staticmethod
-    def loss_l2(Y, pred, weight, **kwargs):
+    def loss_l2(Y, pred, weight, gpred, **kwargs):
         '''
         The l2 loss: f = ||Y - pred||_{fro}^2
         '''
-        diff = pred - Y
         if weight is None:
-            return np.dot(diff.flat, diff.flat), 2.*diff 
+            gpred[:] = pred
+            gpred -= Y
+            f = np.dot(gpred.flat, gpred.flat)
+            gpred *= 2.
         else:
-            return np.dot((diff**2).sum(1), weight), \
-                   2.*diff*weight[:,np.newaxis]
-        
+            # we aim to minimize memory usage and avoid re-allocating large 
+            # matrices.
+            gpred[:] = pred
+            gpred -= Y
+            gpred **= 2
+            f = np.dot(gpred.sum(1), weight)
+            gpred[:] = pred
+            gpred -= Y
+            gpred *= 2. * weight[:, np.newaxis]
+        return f, gpred
+    
     @staticmethod
-    def loss_hinge(Y, pred, weight, **kwargs):
+    def loss_hinge(Y, pred, weight, gpred, **kwargs):
         '''The SVM hinge loss. Input vector Y should have values 1 or -1
         '''
-        margin = np.maximum(0., 1. - Y * pred)
+        # compute margin = np.maximum(0., 1. - Y * pred)
+        gpred[:] = pred
+        gpred *= - Y
+        gpred += 1.
+        np.clip(gpred, 0, np.inf, out=gpred)
         if weight is None:
-            f = margin.sum()
-            g = - Y * (margin>0)
+            #f = margin.sum()
+            #g = - Y * (margin>0)
+            f = gpred.sum()
+            gpred[:] = (gpred > 0)
+            gpred *= -Y
         else:
-            f = np.dot(weight, margin).sum()
-            g = - Y * weight * (margin>0)
-        return f, g
+            #f = np.dot(weight, margin).sum()
+            #g = - Y * weight * (margin>0)
+            f = np.dot(weight, gpred.sum(axis=1))
+            gpred[0] = (gpred > 0)
+            gpred *= - Y * weight
+        return f, gpred
     
     @staticmethod
     def loss_squared_hinge(Y,pred,weight,**kwargs):
@@ -328,7 +354,7 @@ class Loss(object):
                    - Y * weight * expnyp / expnyp_plus
 
     @staticmethod
-    def loss_multiclass_logistic(Y, pred, weight, **kwargs):
+    def loss_multiclass_logistic(Y, pred, weight, gpred, **kwargs):
         """The multiple class logistic regression loss function
         
         The input Y should be a 0-1 matrix 
@@ -337,10 +363,11 @@ class Loss(object):
         prob = pred - pred.max(axis=1)[:,np.newaxis]
         mathutil.exp(prob, out=prob)
         prob /= prob.sum(axis=1)[:, np.newaxis]
-        g = prob - Y
+        gpred[:] = prob
+        gpred -= Y
         # take the log
         mathutil.log(prob, out=prob)
-        return -np.dot(prob.flat, Y.flat), g
+        return -np.dot(prob.flat, Y.flat), gpred
 
 
     @staticmethod
