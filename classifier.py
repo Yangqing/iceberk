@@ -14,6 +14,7 @@ solver, and if the loss function or regularizer is not differentiable everywhere
 
 from iceberk import cpputil, mpi, mathutil
 import gc
+import inspect
 import logging
 import numpy as np
 # The inner1d function is imported here to do more memory-efficient sum of
@@ -165,6 +166,13 @@ class SolverMC(Solver):
         # gradient cache
         self._glocal = np.empty(param_init.shape)
         self._g = np.empty(param_init.shape)
+        # depending on the loss function, we choose whether we want to do
+        # gpred cache
+        if len(inspect.getargspec(self.loss)[0] == 4):
+            self.gpredcache = True
+            self._gpred = np.empty((X.shape[0], self._K))
+        else:
+            self.gpredcache = False
         # just to make sure every node is on the same page
         mpi.COMM.Bcast(param_init)
         return param_init
@@ -190,15 +198,20 @@ class SolverMC(Solver):
         mathutil.dot(solver._X, w, out = solver._pred)
         solver._pred += b
         # compute the loss function
-        flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
-                                   **solver._lossargs)
-        mathutil.dot(solver._X.T, gpred, out = solver._glocal[:K*dim].reshape(dim, K))
+        if solver.gpredcache:
+            flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
+                                       solver._gpred, **solver._lossargs)
+        else:
+            flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
+                                       **solver._lossargs)
+        mathutil.dot(solver._X.T, gpred,
+                     out = solver._glocal[:K*dim].reshape(dim, K))
         solver._glocal[K*dim:] = gpred.sum(axis=0)
-        
         # add regularization term, but keep in mind that we have multiple nodes
         freg, greg = solver.reg(w, **solver._regargs)
-        flocal += solver._num_data * solver._gamma * freg / mpi.SIZE
-        solver._glocal[:K*dim] += solver._num_data * solver._gamma / mpi.SIZE \
+        if mpi.is_root():
+            flocal += solver._num_data * solver._gamma * freg
+            solver._glocal[:K*dim] += solver._num_data * solver._gamma \
                           * greg.ravel()
         # do mpi reduction
         mpi.barrier()
