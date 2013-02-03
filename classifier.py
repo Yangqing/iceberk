@@ -129,67 +129,6 @@ class Solver(object):
         return self.postsolve(result)
 
 
-class SolverSC(Solver):
-    """The solver that does single-class classification
-    Output:
-        w, b :      the learned weights and bias
-    """
-    
-    def presolve(self, X, Y, weight, param_init):
-        self._X = X.reshape((X.shape[0],np.prod(X.shape[1:])))
-        self._Y = Y
-        self._weight = weight
-        # compute the number of data
-        if weight is None:
-            self._num_data = mpi.COMM.allreduce(X.shape[0])
-        else:
-            self._num_data = mpi.COMM.allreduce(weight.sum())
-        self._dim = self._X.shape[1]
-        # prediction cache
-        self._pred = np.empty(X.shape[0], dtype=X.dtype)
-        if param_init is None:
-            param_init = np.zeros(self._dim+1)
-        elif len(param_init) == 2:
-            # the initialization is w and b
-            param_init = np.hstack((param_init[0].flatten(), 
-                                    param_init[1].flatten()))
-        # gradient cache
-        self._glocal = np.empty(param_init.shape)
-        self._g = np.empty(param_init.shape)
-        # just to make sure every node is on the same page
-        mpi.COMM.Bcast(param_init)
-        return param_init
-    
-    def postsolve(self, lbfgs_result):
-        return lbfgs_result[0][:-1], lbfgs_result[0][-1]
-    
-    @staticmethod
-    def obj(param, solver):
-        '''The objective function used by fmin
-        '''
-        w = param[:-1]
-        b = param[-1]
-        # prediction is a vector
-        np.dot(solver._X, w, out=solver._pred)
-        solver._pred += b
-        # call the loss
-        flocal, gpred = solver.loss(solver._Y, solver._pred, solver._weight,
-                                   **solver._lossargs)
-        # get the gradient for both w and b
-        np.dot(gpred, solver._X, out=solver._glocal[:-1])
-        solver._glocal[-1] = gpred.sum()
-        # do mpi reduction
-        # for the regularization term
-        freg, greg = solver.reg(w, **solver._regargs)
-        flocal += solver._num_data * solver._gamma / mpi.SIZE * freg
-        solver._glocal[:-1] += solver._num_data * solver._gamma / mpi.SIZE * greg
-        
-        mpi.barrier()
-        f = mpi.COMM.allreduce(flocal)
-        mpi.COMM.Allreduce(solver._glocal, solver._g)
-        return f, solver._g
-
-
 class SolverMC(Solver):
     '''SolverMC is a multi-dimensional wrapper
     For the input Y, it could be either a vector of the labels
@@ -607,14 +546,6 @@ class Evaluator(object):
 '''
 Utility functions that wraps often-used functions
 '''
-    
-def svm_binary(X, Y, gamma, weight = None, **kwargs):
-    solver = SolverSC(gamma, Loss.loss_hinge, Reg.reg_l2, **kwargs)
-    return solver.solve(X, Y, weight)
-
-def l2svm_binary(X, Y, gamma, weight = None, **kwargs):
-    solver = SolverSC(gamma, Loss.loss_squared_hinge, Reg.reg_l2, **kwargs)
-    return solver.solve(X, Y, weight)
 
 def svm_onevsall(X, Y, gamma, weight = None, **kwargs):
     if Y.ndim == 1:
