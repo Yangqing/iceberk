@@ -176,6 +176,9 @@ class SolverMC(Solver):
             self.gpredcache = False
         # just to make sure every node is on the same page
         mpi.COMM.Bcast(param_init)
+        # for debugging, we report the initial function value.
+        f = SolverMC.obj(param_init, self)[0]
+        logging.debug("Initial function value: %f." % f)
         return param_init
     
     def postsolve(self, lbfgs_result):
@@ -234,6 +237,9 @@ class SolverStochasticLBFGS(Solver):
             the max_iter parameter is defined in fminargs.
         'fine_tune': if a number larger than 0, we perform the corresponding
             steps of complete LBFGS after the stochastic steps finish.
+        'callback': the callback function after each LBFGS iteration. It
+            should take the result output by the solver.solve() function and
+            return a float number.
     """
     @staticmethod
     def synchronized_shuffle(arrays):
@@ -276,6 +282,10 @@ class SolverStochasticLBFGS(Solver):
                                        localweight,
                                        param)
             current += minibatch
+            callback = self._args.get('callback', None)
+            if callback is not None:
+                cb_val = callback(param)
+                logging.debug('Round %d callback value: %f.' % (iter, cb_val))
         finetune = self._args.get('fine_tune', 0)
         if finetune > 0:
             solver_basic._fminargs['maxfun'] = int(finetune)
