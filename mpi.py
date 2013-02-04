@@ -277,10 +277,16 @@ def load_matrix(filename):
     if SIZE == 1:
         data = np.load(filename)
         return data
-    raw_data = np.load(filename, mmap_mode = 'r')
+    try:
+        raw_data = np.load(filename, mmap_mode = 'r')
+    except IOError:
+        # we try to load the filename with '.npy' affix. If we fail again,
+        # raise IOError.
+        raw_data = np.load(filename + '.npy', mmap_mode = 'r')
     total_size = raw_data.shape[0]
     segments = get_segments(total_size)
-    data = np.ascontiguousarray(raw_data[segments[RANK]:segments[RANK+1]])
+    data = np.empty((segments[RANK+1] - segments[RANK],) + raw_data.shape[1:])
+    data[:] = raw_data[segments[RANK]:segments[RANK+1]]
     barrier()
     return data
 
