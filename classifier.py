@@ -170,7 +170,8 @@ class SolverMC(Solver):
         self._g = np.empty(param_init.shape)
         # depending on the loss function, we choose whether we want to do
         # gpred cache
-        if len(inspect.getargspec(self.loss)[0] == 4):
+        if len(inspect.getargspec(self.loss)[0]) == 4:
+            logging.debug('Using gpred cache')
             self.gpredcache = True
             self._gpred = np.empty((X.shape[0], self._K))
         else:
