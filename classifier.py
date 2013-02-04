@@ -64,7 +64,7 @@ class Solver(object):
     Solver is the general solver to deal with bookkeeping stuff
     '''
     def __init__(self, gamma, loss, reg,
-                 lossargs = {}, regargs = {}, fminargs = {}):
+                 args = {}, lossargs = {}, regargs = {}, fminargs = {}):
         '''
         Initializes the solver.
         Input:
@@ -76,6 +76,7 @@ class Solver(object):
             reg: the regularizaiton func. Should accept a vector W of
                 shape nDim and returns the regularization term value and
                 the gradient with respect to W.
+            args: the arguments for the solver in general.
             lossargs: the arguments that should be passed to the loss function
             regargs: the arguments that should be passed to the regularizer
             fminargs: additional arguments that you may want to pass to fmin.
@@ -85,9 +86,10 @@ class Solver(object):
         self._gamma = gamma
         self.loss = loss
         self.reg = reg
-        self._lossargs = lossargs
-        self._regargs = regargs
-        self._fminargs = fminargs
+        self._args = args.copy()
+        self._lossargs = lossargs.copy()
+        self._regargs = regargs.copy()
+        self._fminargs = fminargs.copy()
         self._add_default_fminargs()
     
     def _add_default_fminargs(self):
@@ -218,6 +220,65 @@ class SolverMC(Solver):
         f = mpi.COMM.allreduce(flocal)
         mpi.COMM.Allreduce(solver._glocal, solver._g)
         return f, solver._g
+
+
+class SolverStochasticLBFGS(Solver):
+    """A stochastic LBFGS solver following Quoc Le's ICML 2011 paper. The
+    method creates minibatches and runs LBFGS (using SolverMC) for a few
+    iterations, then moves on to the next minibatch.
+    
+    The solver should have the following args:
+        'minibatch': the batch size
+        'num_iter': the number of LBFGS iterations. Note that for each lbfgs,
+            the max_iter parameter is defined in fminargs.
+        'fine_tune': if a number larger than 0, we perform the corresponding
+            steps of complete LBFGS after the stochastic steps finish.
+    """
+    @staticmethod
+    def synchronized_shuffle(arrays):
+        """Do a synchronized shuffle of a set of arrays along their first axis
+        """
+        rand_state = np.random.get_state()
+        for arr in arrays:
+            if arr is None:
+                continue
+            np.random.set_state(rand_state)
+            np.random.shuffle(arr)
+    
+    def solve(self, X, Y, weight = None, param_init = None):
+        """The solve function
+        """
+        num_data = mpi.COMM.allreduce(X.shape[0])
+        # make sure the minibatch size is distributed according to the local
+        # data size
+        minibatch = int(self._args['minibatch'] * X.shape[0] / num_data)
+        if minibatch >= X.shape[0]:
+            raise ValueError, "Minibatch size is larger than the data size."
+        # deal with minibatch
+        SolverStochasticLBFGS.synchronized_shuffle((X, Y, weight))
+        current = 0
+        solver_basic = SolverMC(self._gamma, self.loss, self.reg,
+                                self._args, self._lossargs, self._regargs,
+                                self._fminargs)
+        param = param_init
+        localweight = None
+        for iter in range(self._args['num_iter']):
+            logging.info('Solver: running lbfgs round %d' % iter)
+            if (X.shape[0] - current < minibatch):
+                # reshuffle
+                SolverStochasticLBFGS.synchronized_shuffle((X, Y, weight))
+                current = 0
+            if weight is not None:
+                localweight = weight[current:current + minibatch]
+            param = solver_basic.solve(X[current:current + minibatch],
+                                       Y[current:current + minibatch],
+                                       localweight,
+                                       param)
+        finetune = self._args.get('fine_tune', 0)
+        if finetune > 0:
+            solver_basic._fminargs['maxfun'] = int(finetune)
+            param = solver_basic.solve(X, Y, weight, param)
+        return param
 
 
 class Loss(object):
