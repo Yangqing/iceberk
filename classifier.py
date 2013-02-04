@@ -170,10 +170,11 @@ class SolverMC(Solver):
         self._g = np.empty(param_init.shape)
         # depending on the loss function, we choose whether we want to do
         # gpred cache
-        if len(inspect.getargspec(self.loss)[0]) == 4:
+        if len(inspect.getargspec(self.loss)[0]) == 5:
             logging.debug('Using gpred cache')
             self.gpredcache = True
             self._gpred = np.empty((X.shape[0], self._K))
+            self._gpredcache = []
         else:
             self.gpredcache = False
         # just to make sure every node is on the same page
@@ -203,7 +204,8 @@ class SolverMC(Solver):
         # compute the loss function
         if solver.gpredcache:
             flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
-                                       solver._gpred, **solver._lossargs)
+                                       solver._gpred, solver._gpredcache,
+                                       **solver._lossargs)
         else:
             flocal,gpred = solver.loss(solver._Y, solver._pred, solver._weight,
                                        **solver._lossargs)
@@ -275,6 +277,7 @@ class SolverStochasticLBFGS(Solver):
                                        Y[current:current + minibatch],
                                        localweight,
                                        param)
+            current += minibatch
         finetune = self._args.get('fine_tune', 0)
         if finetune > 0:
             solver_basic._fminargs['maxfun'] = int(finetune)
@@ -376,6 +379,8 @@ class Loss2(object):
         gpred: the pre-assigned numpy array to store the gradient. We force
             gpred to be preassigned to save memory allocation time in large
             scales.
+        cache: a list (initialized with []) containing any misc cache that
+            the loss function computation uses.
     Return:
         f: the loss function value
         gpred: the gradient w.r.t. pred, has the same shape as pred.
@@ -386,7 +391,7 @@ class Loss2(object):
         raise NotImplementedError, "Loss should not be instantiated!"
     
     @staticmethod
-    def loss_l2(Y, pred, weight, gpred, **kwargs):
+    def loss_l2(Y, pred, weight, gpred, cache, **kwargs):
         '''
         The l2 loss: f = ||Y - pred||_{fro}^2
         '''
@@ -408,7 +413,7 @@ class Loss2(object):
         return f, gpred
     
     @staticmethod
-    def loss_hinge(Y, pred, weight, gpred, **kwargs):
+    def loss_hinge(Y, pred, weight, gpred, cache, **kwargs):
         '''The SVM hinge loss. Input vector Y should have values 1 or -1
         '''
         gpred[:] = pred
@@ -429,7 +434,7 @@ class Loss2(object):
         return f, gpred
     
     @staticmethod
-    def loss_squared_hinge(Y, pred, weight, gpred, **kwargs):
+    def loss_squared_hinge(Y, pred, weight, gpred, cache, **kwargs):
         ''' The squared hinge loss. Input vector Y should have values 1 or -1
         '''
         gpred[:] = pred
@@ -449,11 +454,15 @@ class Loss2(object):
         return f, gpred
 
     @staticmethod
-    def loss_multiclass_logistic(Y, pred, weight, gpred, **kwargs):
+    def loss_multiclass_logistic(Y, pred, weight, gpred, cache, **kwargs):
         """The multiple class logistic regression loss function
         
         The input Y should be a 0-1 matrix 
         """
+        if len(cache) == 0:
+            cache.append(np.empty_like(pred))
+        cache[0].resize(pred.shape)
+        prob = cache[0]
         # normalize prediction to avoid overflowing
         prob = pred.copy()
         prob -= pred.max(axis=1)[:,np.newaxis]

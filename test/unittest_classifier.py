@@ -28,11 +28,11 @@ class TestLoss2(unittest.TestCase):
         """
         f, g = loss1(Y, pred, None)
         g2 = np.empty_like(pred)
-        f2, g2 = loss2(Y, pred, None, g2)
+        f2, g2 = loss2(Y, pred, None, g2, [])
         np.testing.assert_almost_equal(f, f2)
         np.testing.assert_array_almost_equal(g, g2)
         f, g = loss1(Y, pred, weight)
-        f2, g2 = loss2(Y, pred, weight, g2)
+        f2, g2 = loss2(Y, pred, weight, g2, [])
         np.testing.assert_almost_equal(f, f2)
         np.testing.assert_array_almost_equal(g, g2)
 
