@@ -121,10 +121,11 @@ class Solver(object):
         """
         raise NotImplementedError
     
-    def solve(self, X, Y, weight = None, param_init = None):
+    def solve(self, X, Y, weight = None, param_init = None, presolve = True):
         """The solve function
         """
-        param_init = self.presolve(X, Y, weight, param_init)
+        if presolve:
+            param_init = self.presolve(X, Y, weight, param_init)
         logging.debug('Solver: running lbfgs...')
         result = _FMIN(self.__class__.obj, param_init, 
                        args=[self], **self._fminargs)
@@ -138,7 +139,15 @@ class SolverMC(Solver):
     need to manually make sure that the input Y format is consistent
     with the loss function though.
     '''
-    
+    @staticmethod
+    def flatten_params(params):
+        if type(params) is np.array:
+            return params
+        elif type(params) is list:
+            return np.hstack((p.flatten() for p in params))
+        else:
+            raise TypeError, "Unknown input type."
+
     def presolve(self, X, Y, weight, param_init):
         self._X = X.reshape((X.shape[0],np.prod(X.shape[1:])))
         if len(Y.shape) == 1:
@@ -158,10 +167,9 @@ class SolverMC(Solver):
         self._pred = np.empty((X.shape[0], self._K), dtype = X.dtype)
         if param_init is None:
             param_init = np.zeros(self._K * (self._dim+1))
-        elif len(param_init) == 2:
+        else:
             # the initialization is w and b
-            param_init = np.hstack((param_init[0].flatten(), 
-                                    param_init[1].flatten()))
+            param_init = SolverMC.flatten_params(param_init) 
         # gradient cache
         self._glocal = np.empty(param_init.shape)
         self._g = np.empty(param_init.shape)
@@ -181,13 +189,16 @@ class SolverMC(Solver):
         logging.debug("Initial function value: %f." % f)
         return param_init
     
-    def postsolve(self, lbfgs_result):
-        wb = lbfgs_result[0]
-        logging.debug("Final function value: %f." % lbfgs_result[1])
+    def unflatten_params(self, wb):
         K = self._K
         w = wb[: K * self._dim].reshape(self._dim, K).copy()
         b = wb[K * self._dim :].copy()
         return w, b
+
+    def postsolve(self, lbfgs_result):
+        wb = lbfgs_result[0]
+        logging.debug("Final function value: %f." % lbfgs_result[1])
+        return self.unflatten_params(wb)
     
     @staticmethod
     def obj(wb,solver):
@@ -226,20 +237,28 @@ class SolverMC(Solver):
         return f, solver._g
 
 
-class SolverStochasticLBFGS(Solver):
-    """A stochastic LBFGS solver following Quoc Le's ICML 2011 paper. The
-    method creates minibatches and runs LBFGS (using SolverMC) for a few
-    iterations, then moves on to the next minibatch.
+class SolverStochastic(Solver):
+    """A stochastic solver following existing papers in the literature. The
+    method creates minibatches and runs LBFGS (using SolverMC) or Adagrad for
+    a few iterations, then moves on to the next minibatch.
     
     The solver should have the following args:
+        'mode': the basic solver. Currently 'LBFGS' or 'Adagrad', with LBFGS
+            as default.
+        'base_lr': the base learning rate (if using Adagrad as the solver).
         'minibatch': the batch size
-        'num_iter': the number of LBFGS iterations. Note that for each lbfgs,
-            the max_iter parameter is defined in fminargs.
+        'num_iter': the number of iterations to carry out. Note that if you
+            use LBFGS, how many iterations to carry out on one minibatch is
+            defined in the max_iter parameter defined in fminargs. If you use
+            Adagrad, each minibatch will be used once to compute the function
+            value and the gradient, and then discarded.
         'fine_tune': if a number larger than 0, we perform the corresponding
             steps of complete LBFGS after the stochastic steps finish.
         'callback': the callback function after each LBFGS iteration. It
             should take the result output by the solver.solve() function and
-            return a float number.
+            return a float number. If callback is a list, then every entry in
+            the list is a callback function, and they will be carried out
+            sequentially.
     """
     @staticmethod
     def synchronized_shuffle(arrays):
@@ -263,29 +282,63 @@ class SolverStochasticLBFGS(Solver):
             raise ValueError, "Minibatch size is larger than the data size."
         # deal with minibatch
         SolverStochasticLBFGS.synchronized_shuffle((X, Y, weight))
-        current = 0
+        pointer = 0
+        mode = self._args.get('mode', 'lbfgs').lower()
+        # even when we use Adagrad we create a solver_basic to deal with
+        # function value and gradient computation, etc.
         solver_basic = SolverMC(self._gamma, self.loss, self.reg,
-                                self._args, self._lossargs, self._regargs,
-                                self._fminargs)
+                self._args, self._lossargs, self._regargs,
+                self._fminargs)
         param = param_init
         localweight = None
         for iter in range(self._args['num_iter']):
             logging.info('Solver: running lbfgs round %d' % iter)
-            if (X.shape[0] - current < minibatch):
+            if (X.shape[0] - pointer < minibatch):
                 # reshuffle
                 SolverStochasticLBFGS.synchronized_shuffle((X, Y, weight))
-                current = 0
+                pointer = 0
             if weight is not None:
-                localweight = weight[current:current + minibatch]
-            param = solver_basic.solve(X[current:current + minibatch],
-                                       Y[current:current + minibatch],
-                                       localweight,
-                                       param)
-            current += minibatch
+                localweight = weight[pointer:pointer + minibatch]
+            # carry out the computation
+            if mode == 'lbfgs':
+                param = solver_basic.solve(X[pointer:pointer + minibatch],
+                            Y[pointer:pointer + minibatch], localweight, 
+                            param, presolve = (iter == 0))
+            else:
+                # adagrad: compute gradient and update
+                if iter == 0:
+                    # we need to build the cache in solver_basic as well as
+                    # the accumulated gradients
+                    param_flat = solver_basic.presolve(
+                            X[pointer:pointer + minibatch],
+                            Y[pointer:pointer + minibatch],
+                            localweight, param)
+                    accum_grad = np.zeros_like(param_flat) + 
+                            np.finfo(np.float64).eps
+                f, g = SolverMC.obj(param_flat, solver_basic)
+                # update
+                if self._fminargs.get('disp', 0) > 0:
+                    logging.debug('iter %d f = %f |g| = %f' % (iter, f, 
+                            np.sqrt(np.dot(g, g) / g.size)))
+                accum_grad += g * g
+                # we are MINIMIZING, so go against the gradient direction
+                base_lr = self._args['base_lr']
+                param_flat -= g / np.sqrt(accum_grad) * base_lr
+                param = solver_basic.unflatten_params(param_flat)
+            # advance to next minibatch
+            pointer += minibatch
             callback = self._args.get('callback', None)
-            if callback is not None:
+            if callback is None:
+                continue
+            if type(callback) is not list:
                 cb_val = callback(param)
                 logging.debug('Round %d callback value: %f.' % (iter, cb_val))
+            else:
+                for i, cb_func in enumerate(callback):
+                    cb_val = cb_func(param)
+                    logging.debug('Round %d callback #%d value: %f.' \
+                            % (iter, i, cb_val))
+        # the stochastic part is done. See if we want to do fine-tuning.
         finetune = self._args.get('fine_tune', 0)
         if finetune > 0:
             solver_basic._fminargs['maxfun'] = int(finetune)
