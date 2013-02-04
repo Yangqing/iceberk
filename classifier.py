@@ -13,7 +13,6 @@ solver, and if the loss function or regularizer is not differentiable everywhere
 '''
 
 from iceberk import cpputil, mpi, mathutil
-import gc
 import inspect
 import logging
 import numpy as np
@@ -141,8 +140,6 @@ class SolverMC(Solver):
     '''
     
     def presolve(self, X, Y, weight, param_init):
-        logging.debug("Running an explicit garbage collection...")
-        gc.collect()
         self._X = X.reshape((X.shape[0],np.prod(X.shape[1:])))
         if len(Y.shape) == 1:
             self._K = mpi.COMM.allreduce(Y.max(), op=max) + 1
@@ -183,6 +180,7 @@ class SolverMC(Solver):
     
     def postsolve(self, lbfgs_result):
         wb = lbfgs_result[0]
+        logging.debug("Final function value: %f." % lbfgs_result[1])
         K = self._K
         w = wb[: K * self._dim].reshape(self._dim, K).copy()
         b = wb[K * self._dim :].copy()
