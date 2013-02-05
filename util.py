@@ -63,4 +63,4 @@ class Timer:
         if use_template:
             return self._format(time.time() - self._total)
         else:
-            return time.time() - self.total
+            return time.time() - self._total
