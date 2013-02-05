@@ -294,7 +294,7 @@ class SolverStochastic(Solver):
         localweight = None
         timer = util.Timer()
         for iter in range(self._args['num_iter']):
-            logging.info('Solver: running lbfgs round %d, elapsed %s' % \
+            logging.info('Solver: running round %d, elapsed %s' % \
                     (iter, timer.total()))
             if (X.shape[0] - pointer < minibatch):
                 # reshuffle
