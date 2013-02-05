@@ -12,7 +12,7 @@ solver, and if the loss function or regularizer is not differentiable everywhere
 (like the v-style L1 regularizer), we will use the subgradient methods.
 '''
 
-from iceberk import cpputil, mpi, mathutil
+from iceberk import cpputil, mathutil, mpi, util
 import inspect
 import logging
 import numpy as np
@@ -143,12 +143,13 @@ class SolverMC(Solver):
     def flatten_params(params):
         if type(params) is np.array:
             return params
-        elif type(params) is list:
+        elif type(params) is list or type(params) is tuple:
             return np.hstack((p.flatten() for p in params))
         else:
-            raise TypeError, "Unknown input type."
+            raise TypeError, "Unknown input type: %s." % (repr(type(params)))
 
     def presolve(self, X, Y, weight, param_init):
+        self._iter = 0
         self._X = X.reshape((X.shape[0],np.prod(X.shape[1:])))
         if len(Y.shape) == 1:
             self._K = mpi.COMM.allreduce(Y.max(), op=max) + 1
@@ -194,7 +195,7 @@ class SolverMC(Solver):
         w = wb[: K * self._dim].reshape(self._dim, K).copy()
         b = wb[K * self._dim :].copy()
         return w, b
-
+    
     def postsolve(self, lbfgs_result):
         wb = lbfgs_result[0]
         logging.debug("Final function value: %f." % lbfgs_result[1])
@@ -281,7 +282,7 @@ class SolverStochastic(Solver):
         if minibatch >= X.shape[0]:
             raise ValueError, "Minibatch size is larger than the data size."
         # deal with minibatch
-        SolverStochasticLBFGS.synchronized_shuffle((X, Y, weight))
+        SolverStochastic.synchronized_shuffle((X, Y, weight))
         pointer = 0
         mode = self._args.get('mode', 'lbfgs').lower()
         # even when we use Adagrad we create a solver_basic to deal with
@@ -291,29 +292,30 @@ class SolverStochastic(Solver):
                 self._fminargs)
         param = param_init
         localweight = None
+        timer = util.Timer()
         for iter in range(self._args['num_iter']):
-            logging.info('Solver: running lbfgs round %d' % iter)
+            logging.info('Solver: running lbfgs round %d, elapsed %s' % \
+                    (iter, timer.lap()))
             if (X.shape[0] - pointer < minibatch):
                 # reshuffle
-                SolverStochasticLBFGS.synchronized_shuffle((X, Y, weight))
+                SolverStochastic.synchronized_shuffle((X, Y, weight))
                 pointer = 0
             if weight is not None:
                 localweight = weight[pointer:pointer + minibatch]
             # carry out the computation
             if mode == 'lbfgs':
                 param = solver_basic.solve(X[pointer:pointer + minibatch],
-                            Y[pointer:pointer + minibatch], localweight, 
-                            param, presolve = (iter == 0))
+                        Y[pointer:pointer + minibatch], localweight, param)
             else:
                 # adagrad: compute gradient and update
                 if iter == 0:
                     # we need to build the cache in solver_basic as well as
                     # the accumulated gradients
-                    param_flat = solver_basic.presolve(
+                    param_flat = solver_basic.presolve(\
                             X[pointer:pointer + minibatch],
                             Y[pointer:pointer + minibatch],
                             localweight, param)
-                    accum_grad = np.zeros_like(param_flat) + 
+                    accum_grad = np.zeros_like(param_flat) + \
                             np.finfo(np.float64).eps
                 f, g = SolverMC.obj(param_flat, solver_basic)
                 # update
