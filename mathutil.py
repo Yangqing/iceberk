@@ -126,7 +126,7 @@ def log(X, out = None):
     return out
 
 
-def wolfe_line_search_adagrad(x, func, alpha = 0., c1 = 0.01, c2 = 0.9, tau = 0.5):
+def wolfe_line_search_adagrad(x, func, alpha = 1., c1 = 0.01, c2 = 0.9, tau = 0.5):
     """Perform line search using the Wolfe's condition. The search direction
     will be determined as if we are doing the first step of adagrad. Note that this
     will yield a direction different from the gradient.
@@ -145,10 +145,13 @@ def wolfe_line_search_adagrad(x, func, alpha = 0., c1 = 0.01, c2 = 0.9, tau = 0.
             logging.debug('wolfe ls: a = %f, f = %f, condition 1 not met' % \
                     (alpha, f))
             continue
-        if np.dot(direction, g) < c2 * np.dot(direction, g0):
+        elif np.dot(direction, g) < c2 * np.dot(direction, g0):
             logging.debug('wolfe ls: a = %f, f = %f, condition 2 not met' % \
                     (alpha, f))
             continue
+        else:
+            # both conditions met!
+            break
     logging.debug('wolfe ls: a = %f, f = %f, finished.' % (alpha, f))
     return alpha
 
@@ -222,12 +225,6 @@ class MinibatchSampler(object):
         """
         raise NotImplementedError
     
-    def sample_mutable(self, batch_size):
-        """If you want to change the sampled features, make sure to use this
-        function so that the original features are not polluted.
-        """
-        raise NotImplementedError
-
 class NdarraySampler(MinibatchSampler):
     """This sampler initializes with a list or tuple of ndarrays, and for each
     sample, return a list of the same length, and each entry will be a minibatch
@@ -236,8 +233,10 @@ class NdarraySampler(MinibatchSampler):
     or be None, in which case the returned list will have a corresponding None
     entry as well.
     
-    This sampler will pollute the original input arrays - they will be shuffled
-    in-place. The shuffling order will be synchronized among the arrays, though.
+    This sampler takes the distributed storage in consideration. If the
+    program is run over multiple instances, each mpi instance will only return
+    a proportion of the minibatch, and the total size will be equal to
+    minibatch.
     """
     def __init__(self, arrays):
         self._arrays = arrays
@@ -245,28 +244,23 @@ class NdarraySampler(MinibatchSampler):
         if not all([x == lengths[0] for x in lengths]):
             raise ValueError, \
                     "The input ndarrays should have the same shape[0]."
-        self._num_data = lengths[0]
+        self._num_data_local = lengths[0]
+        self._num_data = mpi.COMM.allreduce(self._num_data_local)
         # initialize some bookkeeping values for the sampler
-        NdarraySampler.synchronized_shuffle(self._arrays)
+        self._indices = np.arange(self._num_data_local, dtype = np.int)
+        np.random.shuffle(self._indices)
         self._pointer = 0
-
-    @staticmethod
-    def synchronized_shuffle(arrays):
-        """Do a synchronized shuffle of a set of arrays along their first axis
-        """
-        rand_state = np.random.get_state()
-        for arr in arrays:
-            if arr is None:
-                continue
-            np.random.set_state(rand_state)
-            np.random.shuffle(arr)
-        
+    
     def sample(self, batch_size):
-        if (self._num_data < batch_size):
+        # compute the local batch size, and make sure the sampling is done
+        # proportional to the number of data points that is hosted locally.
+        batch_size = int(self._args['minibatch'] * self._num_data_local / \
+                   float(self._num_data))
+        if (self._num_data_local < batch_size):
             raise ValueError, "I can't do such a big batch size!"
-        if (self._num_data - self._pointer < batch_size):
+        if (self._num_data_local - self._pointer < batch_size):
             # The remaining data are not enough, reshuffle
-            NdarraySampler.synchronized_shuffle(self._arrays)
+            np.random.shuffle(self._indices)
             old_pointer = 0
             self._pointer = batch_size
         else:
@@ -277,19 +271,10 @@ class NdarraySampler(MinibatchSampler):
             if array is None:
                 output.append(None)
             else:
-                output.append(array[old_pointer:self._pointer])
+                batch_idx = self._indices[old_pointer:self._pointer]
+                output.append(array[batch_idx].copy())
         return output
         
-    def sample_mutable(self, batch_size):
-        output = self.sample(batch_size)
-        output_mutable = []
-        for array in output:
-            if array is None:
-                output_mutable.append(None)
-            else:
-                output_mutable.append(array.copy())
-        return output_mutable
-
 
 class FileSampler(MinibatchSampler):
     """FileSampler takes in a set of files stored in a distributed fasion, and

@@ -265,29 +265,14 @@ class SolverStochastic(Solver):
             the list is a callback function, and they will be carried out
             sequentially.
     """
-    @staticmethod
-    def synchronized_shuffle(arrays):
-        """Do a synchronized shuffle of a set of arrays along their first axis
+    def solve(self, sampler, param_init = None):
+        """The solve function.
+        Input:
+            sampler: the data sampler. sampler.sample() should return a list
+                of training data, either (X, Y, weight) or (X, Y, None)
+                depending on whether weight is enforced.
+            param_init: the initial parameter. See SolverMC for details.
         """
-        rand_state = np.random.get_state()
-        for arr in arrays:
-            if arr is None:
-                continue
-            np.random.set_state(rand_state)
-            np.random.shuffle(arr)
-    
-    def solve(self, X, Y, weight = None, param_init = None):
-        """The solve function
-        """
-        num_data = mpi.COMM.allreduce(X.shape[0])
-        # make sure the minibatch size is distributed according to the local
-        # data size
-        minibatch = int(self._args['minibatch'] * X.shape[0] / num_data)
-        if minibatch >= X.shape[0]:
-            raise ValueError, "Minibatch size is larger than the data size."
-        # deal with minibatch
-        SolverStochastic.synchronized_shuffle((X, Y, weight))
-        pointer = 0
         mode = self._args.get('mode', 'lbfgs').lower()
         # even when we use Adagrad we create a solver_basic to deal with
         # function value and gradient computation, etc.
@@ -296,11 +281,10 @@ class SolverStochastic(Solver):
                 self._fminargs)
         param = param_init
         timer = util.Timer()
-        sampler = mathutil.NdarraySampler((X, Y, weight))
         for iter in range(self._args['num_iter']):
             logging.info('Solver: running round %d, elapsed %s' % \
                     (iter, timer.total(False)))
-            Xbatch, Ybatch, weightbatch = sampler.sample(minibatch)
+            Xbatch, Ybatch, weightbatch = sampler.sample(self._args['minibatch'])
             # carry out the computation
             if mode == 'lbfgs':
                 param = solver_basic.solve(Xbatch, Ybatch, weightbatch, param)
@@ -320,7 +304,12 @@ class SolverStochastic(Solver):
                             np.sqrt(np.dot(g, g) / g.size)))
                 accum_grad += g * g
                 # we are MINIMIZING, so go against the gradient direction
-                base_lr = self._args['base_lr']
+                base_lr = self._args.get('base_lr', None)
+                if base_lr is None:
+                    # do a line search to get the value
+                    base_lr = mathutil.wolfe_line_search_adagrad(param_flat,
+                            lambda x: SolverMC.obj(x, solver_basic))
+                    self._args['base_lr'] = base_lr
                 param_flat -= g / np.sqrt(accum_grad) * base_lr
                 param = solver_basic.unflatten_params(param_flat)
             callback = self._args.get('callback', None)
