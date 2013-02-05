@@ -295,7 +295,7 @@ class SolverStochastic(Solver):
         timer = util.Timer()
         for iter in range(self._args['num_iter']):
             logging.info('Solver: running lbfgs round %d, elapsed %s' % \
-                    (iter, timer.lap()))
+                    (iter, timer.total()))
             if (X.shape[0] - pointer < minibatch):
                 # reshuffle
                 SolverStochastic.synchronized_shuffle((X, Y, weight))
