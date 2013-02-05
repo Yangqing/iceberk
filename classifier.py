@@ -139,6 +139,14 @@ class SolverMC(Solver):
     need to manually make sure that the input Y format is consistent
     with the loss function though.
     '''
+    def __init__(self, *args, **kwargs):
+        super(SolverMC, self).__init__(*args, **kwargs)
+        self._pred = None
+        self._glocal = None
+        self._g = None
+        self._gpred = None
+        self._gpredcache = []
+
     @staticmethod
     def flatten_params(params):
         if type(params) is np.array:
@@ -165,29 +173,38 @@ class SolverMC(Solver):
         else:
             self._num_data = mpi.COMM.allreduce(weight.sum())
         self._dim = self._X.shape[1]
-        self._pred = np.empty((X.shape[0], self._K), dtype = X.dtype)
+        if self._pred is None:
+            self._pred = np.empty((X.shape[0], self._K), dtype = X.dtype)
+        else:
+            self._pred.resize(X.shape[0], self._K)
         if param_init is None:
             param_init = np.zeros(self._K * (self._dim+1))
         else:
             # the initialization is w and b
             param_init = SolverMC.flatten_params(param_init) 
         # gradient cache
-        self._glocal = np.empty(param_init.shape)
-        self._g = np.empty(param_init.shape)
+        if self._glocal is None:
+            self._glocal = np.empty(param_init.shape)
+            self._g = np.empty(param_init.shape)
+        else:
+            self._glocal.resize(param_init.shape)
+            self._g.resize(param_init.shape)
         # depending on the loss function, we choose whether we want to do
         # gpred cache
         if len(inspect.getargspec(self.loss)[0]) == 5:
-            logging.debug('Using gpred cache')
+            #logging.debug('Using gpred cache')
             self.gpredcache = True
-            self._gpred = np.empty((X.shape[0], self._K))
-            self._gpredcache = []
+            if self._gpred is None:
+                self._gpred = np.empty((X.shape[0], self._K))
+            else:
+                self._gpred.resize(X.shape[0], self._K)
         else:
             self.gpredcache = False
         # just to make sure every node is on the same page
         mpi.COMM.Bcast(param_init)
         # for debugging, we report the initial function value.
-        f = SolverMC.obj(param_init, self)[0]
-        logging.debug("Initial function value: %f." % f)
+        #f = SolverMC.obj(param_init, self)[0]
+        #logging.debug("Initial function value: %f." % f)
         return param_init
     
     def unflatten_params(self, wb):
@@ -290,11 +307,11 @@ class SolverStochastic(Solver):
                         (iter, str(timer.total(False))))
             else:
                 # adagrad: compute gradient and update
+                param_flat = solver_basic.presolve(\
+                        Xbatch, Ybatch, weightbatch, param)
                 if iter == 0:
                     # we need to build the cache in solver_basic as well as
                     # the accumulated gradients
-                    param_flat = solver_basic.presolve(\
-                            Xbatch, Ybatch, weightbatch, param)
                     accum_grad = np.zeros_like(param_flat) + \
                             np.finfo(np.float64).eps
                     if self._args.get('base_lr', None) is None:
@@ -305,13 +322,14 @@ class SolverStochastic(Solver):
                         # reset the timer to exclude the base learning rate tuning
                         # time
                         timer.reset()
-                f, g = SolverMC.obj(param_flat, solver_basic)
-                logging.debug('iter %d f = %f |g| = %f time = %s' % \
-                        (iter, f, np.sqrt(np.dot(g, g) / g.size),\
-                        str(timer.total(False))))
+                f0, g = SolverMC.obj(param_flat, solver_basic)
                 accum_grad += g * g
                 # we are MINIMIZING, so go against the gradient direction
                 param_flat -= g / np.sqrt(accum_grad) * self._args['base_lr']
+                f = SolverMC.obj(param_flat, solver_basic)[0] 
+                logging.debug('iter %d f0 = %f f = %f time = %s' % \
+                        (iter, f0, f,\
+                        str(timer.total(False))))
                 param = solver_basic.unflatten_params(param_flat)
             callback = self._args.get('callback', None)
             if callback is None:
