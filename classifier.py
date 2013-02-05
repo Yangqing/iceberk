@@ -225,12 +225,16 @@ class SolverMC(Solver):
         mathutil.dot(solver._X.T, gpred,
                      out = solver._glocal[:K*dim].reshape(dim, K))
         solver._glocal[K*dim:] = gpred.sum(axis=0)
+        # we should normalize them with the number of data
+        flocal /= solver._num_data
+        solver._glocal /= solver._num_data
         # add regularization term, but keep in mind that we have multiple nodes
-        freg, greg = solver.reg(w, **solver._regargs)
+        # so we only carry it out on root to make sure we only added one 
+        # regularization term
         if mpi.is_root():
-            flocal += solver._num_data * solver._gamma * freg
-            solver._glocal[:K*dim] += solver._num_data * solver._gamma \
-                          * greg.ravel()
+            freg, greg = solver.reg(w, **solver._regargs)
+            flocal += solver._gamma * freg
+            solver._glocal[:K*dim] += solver._gamma * greg.ravel()
         # do mpi reduction
         mpi.barrier()
         f = mpi.COMM.allreduce(flocal)
