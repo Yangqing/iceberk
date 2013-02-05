@@ -286,6 +286,8 @@ class SolverStochastic(Solver):
             # carry out the computation
             if mode == 'lbfgs':
                 param = solver_basic.solve(Xbatch, Ybatch, weightbatch, param)
+                logging.debug('iter %d time = %s' % \
+                        (iter, str(timer.total(False))))
             else:
                 # adagrad: compute gradient and update
                 if iter == 0:
@@ -304,11 +306,9 @@ class SolverStochastic(Solver):
                         # time
                         timer.reset()
                 f, g = SolverMC.obj(param_flat, solver_basic)
-                # update
-                if self._fminargs.get('disp', 0) > 0:
-                    logging.debug('iter %d f = %f |g| = %f time = %s' % \
-                            (iter, f, np.sqrt(np.dot(g, g) / g.size),\
-                            str(timer.total(False))))
+                logging.debug('iter %d f = %f |g| = %f time = %s' % \
+                        (iter, f, np.sqrt(np.dot(g, g) / g.size),\
+                        str(timer.total(False))))
                 accum_grad += g * g
                 # we are MINIMIZING, so go against the gradient direction
                 param_flat -= g / np.sqrt(accum_grad) * self._args['base_lr']
