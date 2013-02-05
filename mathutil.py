@@ -254,7 +254,7 @@ class NdarraySampler(MinibatchSampler):
     def sample(self, batch_size):
         # compute the local batch size, and make sure the sampling is done
         # proportional to the number of data points that is hosted locally.
-        batch_size = int(self._args['minibatch'] * self._num_data_local / \
+        batch_size = int(batch_size * self._num_data_local / \
                    float(self._num_data))
         if (self._num_data_local < batch_size):
             raise ValueError, "I can't do such a big batch size!"
