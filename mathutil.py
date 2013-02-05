@@ -1,5 +1,6 @@
 import numpy as np
 from iceberk import mpi
+import logging
 
 def CHECK_IMAGE(img):
     if (type(img) is np.ndarray) and (img.ndim == 3) \
@@ -135,7 +136,7 @@ def wolfe_line_search_adagrad(x, func, alpha = 1., c1 = 0.01, c2 = 0.9, tau = 0.
     f0, g0 = func(x)
     # copy g0 so calling func again does not modify it
     g0 = g0.copy()
-    direction = - g0 / np.sqrt(g0 ** 2 + np.finfo(np.float64).eps)
+    direction = - g0 / np.sqrt(g0 * g0 + np.finfo(np.float64).eps)
     logging.debug('wolfe ls: f = %f.' % (f0))
     alpha /= tau
     while True:
@@ -282,8 +283,26 @@ class FileSampler(MinibatchSampler):
     memory. Currently, you will need to make sure all file parts for an array
     is loadable from the running machine.
     """
-    pass
-    
+    def __init__(self, num_data, filenames):
+        """Initialize the sampler.
+        Input:
+            num_data: the number of total data points.
+            filenames: a list of filenames containing the data. Each filename
+                could be a specific name like "label.npy", or a name that
+                contains wildcards like "Xtrain-*-of-*.npy" in case the data
+                is stored in chunks (see iceberk.mpi). In the latter case, we
+                will read the files one by one using their string order. The
+                list could contain None, in which case we will simply return
+                None for the corresponding sample.
+        """
+        self._num_data = num_data
+        self._filenames = filenames
+
+    def sample(self, batch_size):
+        if (batch_size > self._num_data):
+            raise ValueError, "I can't do such a big batch size!"
+        batch_size = batch_size / mpi.SIZE
+        raise NotImplementedError
 
 ###############################################################################
 # MPI-related utils are implemented here.

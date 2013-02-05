@@ -282,8 +282,6 @@ class SolverStochastic(Solver):
         param = param_init
         timer = util.Timer()
         for iter in range(self._args['num_iter']):
-            logging.info('Solver: running round %d, elapsed %s' % \
-                    (iter, timer.total(False)))
             Xbatch, Ybatch, weightbatch = sampler.sample(self._args['minibatch'])
             # carry out the computation
             if mode == 'lbfgs':
@@ -297,32 +295,33 @@ class SolverStochastic(Solver):
                             Xbatch, Ybatch, weightbatch, param)
                     accum_grad = np.zeros_like(param_flat) + \
                             np.finfo(np.float64).eps
+                    if self._args.get('base_lr', None) is None:
+                        # do a line search to get the value
+                        self._args['base_lr'] = \
+                                mathutil.wolfe_line_search_adagrad(param_flat,
+                                lambda x: SolverMC.obj(x, solver_basic))
+                        # reset the timer to exclude the base learning rate tuning
+                        # time
+                        timer.reset()
                 f, g = SolverMC.obj(param_flat, solver_basic)
                 # update
                 if self._fminargs.get('disp', 0) > 0:
-                    logging.debug('iter %d f = %f |g| = %f' % (iter, f, 
-                            np.sqrt(np.dot(g, g) / g.size)))
+                    logging.debug('iter %d f = %f |g| = %f time = %s' % \
+                            (iter, f, np.sqrt(np.dot(g, g) / g.size),\
+                            str(timer.total(False))))
                 accum_grad += g * g
                 # we are MINIMIZING, so go against the gradient direction
-                base_lr = self._args.get('base_lr', None)
-                if base_lr is None:
-                    # do a line search to get the value
-                    base_lr = mathutil.wolfe_line_search_adagrad(param_flat,
-                            lambda x: SolverMC.obj(x, solver_basic))
-                    self._args['base_lr'] = base_lr
-                param_flat -= g / np.sqrt(accum_grad) * base_lr
+                param_flat -= g / np.sqrt(accum_grad) * self._args['base_lr']
                 param = solver_basic.unflatten_params(param_flat)
             callback = self._args.get('callback', None)
             if callback is None:
                 continue
             if type(callback) is not list:
                 cb_val = callback(param)
-                logging.debug('Round %d callback value: %f.' % (iter, cb_val))
+                logging.debug('cb: %f.' % (cb_val))
             else:
-                for i, cb_func in enumerate(callback):
-                    cb_val = cb_func(param)
-                    logging.debug('Round %d callback #%d value: %f.' \
-                            % (iter, i, cb_val))
+                cb_val = [cb_func(param) for cb_func in callback]
+                logging.debug('cb: ' + ' '.join([str(v) for v in cb_val]))
         # the stochastic part is done. See if we want to do fine-tuning.
         finetune = self._args.get('fine_tune', 0)
         if finetune > 0:
