@@ -125,6 +125,7 @@ def log(X, out = None):
     np.log(out, out = out)
     return out
 
+
 class ReservoirSampler(object):
     """reservoir_sampler implements the reservoir sampling method based on numpy
     matrices. It does NOT use mpi - each mpi node does sampling on its own.
@@ -184,6 +185,94 @@ class ReservoirSampler(object):
             return self._data[:self._current]
         else:
             return self._data
+
+
+class MinibatchSampler(object):
+    """MinibatchSampler is the general class that performs minibatch sampling
+    from data
+    """
+    def sample(self, batch_size):
+        """return a minibatch sample. Your sampler should implement this.
+        """
+        raise NotImplementedError
+    
+    def sample_mutable(self, batch_size):
+        """If you want to change the sampled features, make sure to use this
+        function so that the original features are not polluted.
+        """
+        raise NotImplementedError
+
+class NdarraySampler(MinibatchSampler):
+    """This sampler initializes with a list or tuple of ndarrays, and for each
+    sample, return a list of the same length, and each entry will be a minibatch
+    from the corresponding input. For the input list, each entry should have
+    the same shape[0] (the sampling will be carried out along the first axis)
+    or be None, in which case the returned list will have a corresponding None
+    entry as well.
+    
+    This sampler will pollute the original input arrays - they will be shuffled
+    in-place. The shuffling order will be synchronized among the arrays, though.
+    """
+    def __init__(self, arrays):
+        self._arrays = arrays
+        lengths = [t.shape[0] for t in arrays if t is not None]
+        if not all([x == lengths[0] for x in lengths]):
+            raise ValueError, \
+                    "The input ndarrays should have the same shape[0]."
+        self._num_data = lengths[0]
+        # initialize some bookkeeping values for the sampler
+        NdarraySampler.synchronized_shuffle(self._arrays)
+        self._pointer = 0
+
+    @staticmethod
+    def synchronized_shuffle(arrays):
+        """Do a synchronized shuffle of a set of arrays along their first axis
+        """
+        rand_state = np.random.get_state()
+        for arr in arrays:
+            if arr is None:
+                continue
+            np.random.set_state(rand_state)
+            np.random.shuffle(arr)
+        
+    def sample(self, batch_size):
+        if (self._num_data < batch_size):
+            raise ValueError, "I can't do such a big batch size!"
+        if (self._num_data - self._pointer < batch_size):
+            # The remaining data are not enough, reshuffle
+            NdarraySampler.synchronized_shuffle(self._arrays)
+            old_pointer = 0
+            self._pointer = batch_size
+        else:
+            old_pointer = self._pointer
+            self._pointer += batch_size
+        output = []
+        for array in self._arrays:
+            if array is None:
+                output.append(None)
+            else:
+                output.append(array[old_pointer:self._pointer])
+        return output
+        
+    def sample_mutable(self, batch_size):
+        output = self.sample(batch_size)
+        output_mutable = []
+        for array in output:
+            if array is None:
+                output_mutable.append(None)
+            else:
+                output_mutable.append(array.copy())
+        return output_mutable
+
+
+class FileSampler(MinibatchSampler):
+    """FileSampler takes in a set of files stored in a distributed fasion, and
+    use memory maps to access the files and do sampling, in order to save 
+    memory. Currently, you will need to make sure all file parts for an array
+    is loadable from the running machine.
+    """
+    pass
+    
 
 ###############################################################################
 # MPI-related utils are implemented here.

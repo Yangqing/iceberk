@@ -291,30 +291,22 @@ class SolverStochastic(Solver):
                 self._args, self._lossargs, self._regargs,
                 self._fminargs)
         param = param_init
-        localweight = None
         timer = util.Timer()
+        sampler = mathutil.NdarraySampler((X, Y, weight))
         for iter in range(self._args['num_iter']):
             logging.info('Solver: running round %d, elapsed %s' % \
                     (iter, timer.total(False)))
-            if (X.shape[0] - pointer < minibatch):
-                # reshuffle
-                SolverStochastic.synchronized_shuffle((X, Y, weight))
-                pointer = 0
-            if weight is not None:
-                localweight = weight[pointer:pointer + minibatch]
+            Xbatch, Ybatch, weightbatch = sampler.sample(minibatch)
             # carry out the computation
             if mode == 'lbfgs':
-                param = solver_basic.solve(X[pointer:pointer + minibatch],
-                        Y[pointer:pointer + minibatch], localweight, param)
+                param = solver_basic.solve(Xbatch, Ybatch, weightbatch, param)
             else:
                 # adagrad: compute gradient and update
                 if iter == 0:
                     # we need to build the cache in solver_basic as well as
                     # the accumulated gradients
                     param_flat = solver_basic.presolve(\
-                            X[pointer:pointer + minibatch],
-                            Y[pointer:pointer + minibatch],
-                            localweight, param)
+                            Xbatch, Ybatch, weightbatch, param)
                     accum_grad = np.zeros_like(param_flat) + \
                             np.finfo(np.float64).eps
                 f, g = SolverMC.obj(param_flat, solver_basic)
@@ -327,8 +319,6 @@ class SolverStochastic(Solver):
                 base_lr = self._args['base_lr']
                 param_flat -= g / np.sqrt(accum_grad) * base_lr
                 param = solver_basic.unflatten_params(param_flat)
-            # advance to next minibatch
-            pointer += minibatch
             callback = self._args.get('callback', None)
             if callback is None:
                 continue
