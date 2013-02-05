@@ -126,6 +126,32 @@ def log(X, out = None):
     return out
 
 
+def wolfe_line_search_adagrad(x, func, alpha = 0., c1 = 0.01, c2 = 0.9, tau = 0.5):
+    """Perform line search using the Wolfe's condition. The search direction
+    will be determined as if we are doing the first step of adagrad. Note that this
+    will yield a direction different from the gradient.
+    """
+    logging.error("Wolfe line search is not tested yet.")
+    f0, g0 = func(x)
+    # copy g0 so calling func again does not modify it
+    g0 = g0.copy()
+    direction = - g0 / np.sqrt(g0 ** 2 + np.finfo(np.float64).eps)
+    logging.debug('wolfe ls: f = %f.' % (f0))
+    alpha /= tau
+    while True:
+        alpha *= tau
+        f, g = func(x + alpha * direction)
+        if f > f0 + c1 * alpha * np.dot(direction, g0):
+            logging.debug('wolfe ls: a = %f, f = %f, condition 1 not met' % \
+                    (alpha, f))
+            continue
+        if np.dot(direction, g) < c2 * np.dot(direction, g0):
+            logging.debug('wolfe ls: a = %f, f = %f, condition 2 not met' % \
+                    (alpha, f))
+            continue
+    logging.debug('wolfe ls: a = %f, f = %f, finished.' % (alpha, f))
+    return alpha
+
 class ReservoirSampler(object):
     """reservoir_sampler implements the reservoir sampling method based on numpy
     matrices. It does NOT use mpi - each mpi node does sampling on its own.
