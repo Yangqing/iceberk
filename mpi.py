@@ -314,53 +314,50 @@ def load_matrix_multi(filename, N = None):
             separated too. Otherwise, the number is automatically inferred by
             listing all the files using regexp matching.
     """
-    if N is None:
-        # figure out the size
-        files= glob.glob('%s-?????-of-?????.npy' % (filename))
-        N = len(files)
+    files= glob.glob('%s-?????-of-?????.npy' % (filename))
+    N = len(files)
+    logging.debug("Loading the matrix from %d parts" % N)
+    # we will load the length of the data, and then try to distribute them
+    # as even as possible.
+    if RANK == 0:
+        # the root will first taste each file
+        sizes = np.array([np.load('%s-%05d-of-%05d.npy' % (filename, i, N),
+                                  mmap_mode='r').shape[0]
+                          for i in range(N)])
+        temp = np.load('%s-%05d-of-%05d.npy' % (filename, 0, N),
+                                  mmap_mode='r')
+        shape = temp.shape[1:]
+        dtype = temp.dtype
     else:
-        logging.debug("Loading the matrix from %d parts" % N)
-        # we will load the length of the data, and then try to distribute them
-        # as even as possible.
-        if RANK == 0:
-            # the root will first taste each file
-            sizes = np.array([np.load('%s-%05d-of-%05d.npy' % (filename, i, N),
-                                      mmap_mode='r').shape[0]
-                              for i in range(N)])
-            temp = np.load('%s-%05d-of-%05d.npy' % (filename, 0, N),
-                                      mmap_mode='r')
-            shape = temp.shape[1:]
-            dtype = temp.dtype
-        else:
-            sizes = None
-            shape = None
-            dtype = None
-        barrier()
-        sizes = COMM.bcast(sizes)
-        shape = COMM.bcast(shape)
-        dtype = COMM.bcast(dtype)
-        total = sizes.sum()
-        segments = get_segments(total)
-        # now, each node opens the file that overlaps with its data, and reads
-        # the contents.
-        my_start = segments[RANK]
-        my_end = segments[RANK+1]
-        my_size = my_end - my_start
-        mat = np.empty((my_size,) + shape, dtype = dtype)
-        mat = np.empty((my_size,) + shape)
-        f_start = 0
-        f_end = 0
-        for i, size in enumerate(sizes):
-            f_end += size
-            if f_start < my_end and f_end > my_start:
-                file_mat = np.load('%s-%05d-of-%05d.npy' % (filename, i, N),
-                                    mmap_mode='r')
-                mat[max(f_start - my_start, 0):\
-                    min(f_end - my_start, my_size)] = \
-                        file_mat[max(my_start - f_start,0):\
-                                 min(my_end - f_start, size)]
-            f_start += size
-        return mat
+        sizes = None
+        shape = None
+        dtype = None
+    barrier()
+    sizes = COMM.bcast(sizes)
+    shape = COMM.bcast(shape)
+    dtype = COMM.bcast(dtype)
+    total = sizes.sum()
+    segments = get_segments(total)
+    # now, each node opens the file that overlaps with its data, and reads
+    # the contents.
+    my_start = segments[RANK]
+    my_end = segments[RANK+1]
+    my_size = my_end - my_start
+    mat = np.empty((my_size,) + shape, dtype = dtype)
+    mat = np.empty((my_size,) + shape)
+    f_start = 0
+    f_end = 0
+    for i, size in enumerate(sizes):
+        f_end += size
+        if f_start < my_end and f_end > my_start:
+            file_mat = np.load('%s-%05d-of-%05d.npy' % (filename, i, N),
+                                mmap_mode='r')
+            mat[max(f_start - my_start, 0):\
+                min(f_end - my_start, my_size)] = \
+                    file_mat[max(my_start - f_start,0):\
+                             min(my_end - f_start, size)]
+        f_start += size
+    return mat
 
 
 def root_pickle(obj, filename):
