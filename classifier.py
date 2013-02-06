@@ -527,7 +527,7 @@ class Loss2(object):
         cache[0].resize(pred.shape)
         prob = cache[0]
         # normalize prediction to avoid overflowing
-        prob = pred.copy()
+        prob[:] = pred
         prob -= pred.max(axis=1)[:,np.newaxis]
         mathutil.exp(prob, out=prob)
         prob /= prob.sum(axis=1)[:, np.newaxis]
