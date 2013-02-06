@@ -318,12 +318,8 @@ def load_matrix_multi(filename, N = None):
         # figure out the size
         files= glob.glob('%s-?????-of-?????.npy' % (filename))
         N = len(files)
-    logging.debug("Loading the matrix from %d parts" % N)
-    if N == SIZE:
-        # we are lucky
-        mat = np.load('%s-%05d-of-%05d.npy' % (filename, RANK, N))
-        return mat
     else:
+        logging.debug("Loading the matrix from %d parts" % N)
         # we will load the length of the data, and then try to distribute them
         # as even as possible.
         if RANK == 0:
