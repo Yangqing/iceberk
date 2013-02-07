@@ -278,9 +278,9 @@ class SolverStochastic(Solver):
             steps of complete LBFGS after the stochastic steps finish.
         'callback': the callback function after each LBFGS iteration. It
             should take the result output by the solver.solve() function and
-            return a float number. If callback is a list, then every entry in
-            the list is a callback function, and they will be carried out
-            sequentially.
+            return whatever that can be converted to a string by str(). If 
+            callback is a list, then every entry in the list is a callback 
+            function, and they will be carried out sequentially.
     """
     def solve(self, sampler, param_init = None):
         """The solve function.
@@ -312,13 +312,15 @@ class SolverStochastic(Solver):
                 if iter == 0:
                     # we need to build the cache in solver_basic as well as
                     # the accumulated gradients
-                    accum_grad = np.zeros_like(param_flat) + \
+                    accum_grad = np.ones_like(param_flat) * \
+                            (self._args.get('eta', 0.) ** 2) + \
                             np.finfo(np.float64).eps
                     if self._args.get('base_lr', None) is None:
                         # do a line search to get the value
                         self._args['base_lr'] = \
                                 mathutil.wolfe_line_search_adagrad(param_flat,
-                                lambda x: SolverMC.obj(x, solver_basic))
+                                lambda x: SolverMC.obj(x, solver_basic),
+                                eta = self._args.get('eta', 0.))
                         # reset the timer to exclude the base learning rate tuning
                         # time
                         timer.reset()
@@ -336,7 +338,7 @@ class SolverStochastic(Solver):
                 continue
             if type(callback) is not list:
                 cb_val = callback(param)
-                logging.debug('cb: %f.' % (cb_val))
+                logging.debug('cb: ' + str(cb_val))
             else:
                 cb_val = [cb_func(param) for cb_func in callback]
                 logging.debug('cb: ' + ' '.join([str(v) for v in cb_val]))

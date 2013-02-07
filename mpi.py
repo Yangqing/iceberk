@@ -275,7 +275,10 @@ def load_matrix(filename):
     numpy supports memmap so each node will simply load its own part
     """
     if SIZE == 1:
-        data = np.load(filename)
+        try:
+            data = np.load(filename)
+        except IOError:
+            data = np.load(filename + '.npy')
         return data
     try:
         raw_data = np.load(filename, mmap_mode = 'r')
