@@ -1,3 +1,4 @@
+import glob
 import numpy as np
 from iceberk import mpi
 import logging
@@ -127,16 +128,24 @@ def log(X, out = None):
     return out
 
 
-def wolfe_line_search_adagrad(x, func, alpha = 1., c1 = 0.01, c2 = 0.9, tau = 0.5):
+def wolfe_line_search_adagrad(x, func, alpha = 1., eta = 0., c1 = 0.01, c2 = 0.9, tau = 0.8):
     """Perform line search using the Wolfe's condition. The search direction
     will be determined as if we are doing the first step of adagrad. Note that this
     will yield a direction different from the gradient.
+    Input:
+        x: the initial point
+        func: the function to minimize, should be in the form
+            function_value, gradient = func(x)
+        alpha: the initial step size
+        eta: the initial value to start the gradient accumulation.
+        c1, c2: the constants in the Wolfe's condition.
+        tau: the shrinkage factor. If conditions are not met, then we set
+            alpha <- alpha * tau
     """
-    logging.error("Wolfe line search is not tested yet.")
     f0, g0 = func(x)
     # copy g0 so calling func again does not modify it
     g0 = g0.copy()
-    direction = - g0 / np.sqrt(g0 * g0 + np.finfo(np.float64).eps)
+    direction = - g0 / np.sqrt(g0 * g0 + eta * eta + np.finfo(np.float64).eps)
     logging.debug('wolfe ls: f = %f.' % (f0))
     alpha /= tau
     while True:
@@ -225,6 +234,7 @@ class MinibatchSampler(object):
         """return a minibatch sample. Your sampler should implement this.
         """
         raise NotImplementedError
+
     
 class NdarraySampler(MinibatchSampler):
     """This sampler initializes with a list or tuple of ndarrays, and for each
@@ -283,10 +293,9 @@ class FileSampler(MinibatchSampler):
     memory. Currently, you will need to make sure all file parts for an array
     is loadable from the running machine.
     """
-    def __init__(self, num_data, filenames):
+    def __init__(self, filenames):
         """Initialize the sampler.
         Input:
-            num_data: the number of total data points.
             filenames: a list of filenames containing the data. Each filename
                 could be a specific name like "label.npy", or a name that
                 contains wildcards like "Xtrain-*-of-*.npy" in case the data
@@ -295,15 +304,73 @@ class FileSampler(MinibatchSampler):
                 list could contain None, in which case we will simply return
                 None for the corresponding sample.
         """
-        self._num_data = num_data
-        self._filenames = filenames
+        self._datamaps = []
+        # precheck the files to understand the storage structure
+        for fname in filenames:
+            if fname is None:
+                self._datamaps.append(None)
+            else:
+                files = glob.glob(fname)
+                files.sort()
+                if len(files) == 0:
+                    raise ValueError, "Cannot find file: %s" % fname
+                segments = []
+                start_id = 0
+                for f in files:
+                    mat = np.load(f, mmap_mode='r')
+                    end_id = mat.shape[0] + start_id
+                    segments.append((f, start_id, end_id, mat.shape[1:], mat.dtype))
+                    start_id = end_id
+
+                self._datamaps.append(segments)
+        # find the number of data
+        num_data = [m[-1][2] for m in self._datamaps]
+        if not all(n == num_data[0] for n in num_data):
+            raise ValueError, \
+                    "Files %s do not have the same number of data."
+        self._num_data = num_data[0]
+        self._indices = np.arange(self._num_data, dtype = np.int)
+        np.random.shuffle(self._indices)
+        self._pointer = 0
+        return
 
     def sample(self, batch_size):
         if (batch_size > self._num_data):
             raise ValueError, "I can't do such a big batch size!"
         batch_size = batch_size / mpi.SIZE
-        raise NotImplementedError
+        if (self._num_data - self._pointer < batch_size):
+            # The remaining data are not enough, reshuffle
+            np.random.shuffle(self._indices)
+            old_pointer = 0
+            self._pointer = batch_size
+        else:
+            old_pointer = self._pointer
+            self._pointer += batch_size
+        batch_idx = self._indices[old_pointer:self._pointer]
+        batch_idx.sort()
+        return [self._sample_single(m, batch_idx) for m in self._datamaps]
 
+    def _sample_single(self, datamap, indices):
+        """Sample the numpy array based on the current filename
+        """
+        if datamap is None:
+            return None
+        else:
+            batchsize = len(indices)
+            output = np.empty((batchsize,) + datamap[0][-2],
+                              dtype = datamap[0][-1])
+            startid = 0
+            for m in datamap:
+                # determine my end location
+                endid = startid
+                while endid < batchsize and indices[endid] < m[2]:
+                    endid += 1
+                if endid > startid:
+                    mat = np.load(m[0], mmap_mode='r')
+                    output[startid:endid] = mat[indices[startid:endid] - m[1]]
+                startid = endid
+            return output
+                 
 ###############################################################################
 # MPI-related utils are implemented here.
 ###############################################################################
