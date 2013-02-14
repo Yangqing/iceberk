@@ -235,7 +235,32 @@ class MinibatchSampler(object):
         """
         raise NotImplementedError
 
-    
+class PostProcessSampler(MinibatchSampler):
+    """PostProcessSampler does not do sampling directly, but uses a basic 
+    sampler to get minibatches. What it does is to then apply a set of
+    postprocessing functions to the minibatch, such as data conversion and
+    normalization.
+    """
+    def __init__(self, basic_sampler, funcs):
+        """Initialize the postprocesing sampler
+        Input:
+            basic_sampler: the basic sampler that generates the minibatch.
+            funcs: a list of functions, one for each minibatch entry.
+        """
+        self._basic = basic_sampler
+        self._funcs = funcs
+
+    def sample(self, batch_size):
+        batch = self._basic.sample(batch_size)
+        output = []
+        for mat, func in zip(batch, self._funcs):
+            if func is None:
+                output.append(mat)
+            else:
+                output.append(func(mat))
+        return output
+
+
 class NdarraySampler(MinibatchSampler):
     """This sampler initializes with a list or tuple of ndarrays, and for each
     sample, return a list of the same length, and each entry will be a minibatch
