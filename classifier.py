@@ -25,13 +25,15 @@ from sklearn import metrics
 
 _FMIN = optimize.fmin_l_bfgs_b
 
-def to_one_of_k_coding(Y, fill = -1):
+def to_one_of_k_coding(Y, fill = -1, K = None):
     '''Convert the vector Y into one-of-K coding. The element will be either
-    fill (-1 in default) or 1
+    fill (-1 in default) or 1. If K is None, the number of classes is 
+    determined by Y.max().
     '''
     if Y.ndim > 1:
         raise ValueError, "The input Y should be a vector."
-    K = mpi.COMM.allreduce(Y.max(), op=max) + 1
+    if K is None:
+        K = mpi.COMM.allreduce(Y.max(), op=max) + 1
     Yout = np.ones((len(Y), K)) * fill
     Yout[np.arange(len(Y)), Y.astype(int)] = 1
     return Yout
