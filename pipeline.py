@@ -311,8 +311,8 @@ class PatchExtractor(Extractor):
                     raise ValueError, "Image shape %s and patch shape %s are "\
                                       "not compatible" % \
                                       (repr(im.shape), repr(self.psize))
-                rowid = np.random.randint(im.shape[0]-self.psize[0])
-                colid = np.random.randint(im.shape[1]-self.psize[1])
+                rowid = np.random.randint(im.shape[0] - self.psize[0] + 1)
+                colid = np.random.randint(im.shape[1] - self.psize[1] + 1)
             else:
                 rowid = rowids[i]
                 colid = colids[i]
